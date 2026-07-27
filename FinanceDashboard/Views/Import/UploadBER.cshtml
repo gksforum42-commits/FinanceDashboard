@@ -1,0 +1,572 @@
+﻿@{
+    ViewData["Title"] = "Upload BER";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-upload me-2"></i>Upload BER</h2>
+            <p class="text-muted mb-0">Upload Excel file containing Budget Execution Report data</p>
+        </div>
+        <div>
+            <a href="/Import/DownloadBERSample" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Sample Format
+            </a>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>BER File Upload</h6>
+                </div>
+                <div class="card-body p-4">
+                    <div class="alert alert-info py-2 mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The Excel file must contain a sheet named <strong>ber</strong>. Column 1 = Financial Year, Column 2 = Fund Code (30 columns total).
+                        <a href="/Import/DownloadBERSample" class="alert-link ms-1">Download sample</a> to see the exact format.
+                    </div>
+
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-3">
+                            <label class="form-label">Financial Year</label>
+                            <select id="financialYear" class="form-select" required>
+                                @for (int y = DateTime.Now.Year + 1; y >= 2020; y--)
+                                {
+                                    <option value="@y" selected="@(y == DateTime.Now.Year ? "selected" : null)">@y</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Import Type</label>
+                            <select id="importType" class="form-select">
+                                <option value="BER" selected>BER Only</option>
+                                <option value="Both">Both Sheets (Original + BER)</option>
+                            </select>
+                        </div>
+
+                        <div class="upload-zone mb-3" id="dropZone">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <h5>Drag and Drop your Excel file here</h5>
+                            <p class="mb-2">or</p>
+                            <button type="button" class="btn btn-outline-primary btn-sm mb-2" onclick="document.getElementById('berFile').click()">
+                                <i class="bi bi-folder2-open me-1"></i>Browse Files
+                            </button>
+                            <br /><small class="text-muted">Supported: .xlsx, .xls (Max 50MB)</small>
+                        </div>
+                        <input type="file" id="berFile" name="ExcelFile" accept=".xlsx,.xls" style="display:none" />
+
+                        <div id="fileInfo" class="alert alert-success d-none">
+                            <i class="bi bi-file-earmark-excel me-2"></i>
+                            <strong id="fileName"></strong>&nbsp;(<span id="fileSize"></span>)
+                        </div>
+
+                        <div class="d-grid gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-secondary" id="previewBtn" onclick="previewFile()" disabled>
+                                <i class="bi bi-eye me-2"></i>Preview Data
+                            </button>
+                            <button type="button" class="btn btn-primary" id="importBtn" onclick="importFile()" disabled>
+                                <i class="bi bi-upload me-2"></i>Import Data
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="previewSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-table me-2"></i>Data Preview</h6>
+                        <div class="alert alert-warning d-none" id="validationErrors"></div>
+                        <div class="preview-table-container">
+                            <table class="table table-sm preview-table" id="previewTable">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-muted small"><span id="previewStats"></span></div>
+                    </div>
+
+                    <div id="progressSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-hourglass-split me-2"></i>Import Progress</h6>
+
+                        <ul class="list-group list-group-flush mb-3">
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-1">
+                                <span id="imp-icon-1"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 1: Upload &amp; read Excel file</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-1">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-2">
+                                <span id="imp-icon-2"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 2: Clear old BER staging data</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-2">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-3">
+                                <span id="imp-icon-3"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 3: Bulk insert new records</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-3">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-4">
+                                <span id="imp-icon-4"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 4: Save import history</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-4">Waiting</span>
+                            </li>
+                        </ul>
+
+                        <div class="progress mb-2" style="height:20px;">
+                            <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                 style="width:0%" role="progressbar"></div>
+                        </div>
+                        <div id="progressStatus" class="text-center mt-2 text-muted">Ready…</div>
+
+                        <div id="importErrorAlert" class="alert alert-danger mt-3 d-none">
+                            <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                        </div>
+
+                        <div id="importSuccessAlert" class="alert alert-success mt-3 d-none">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong id="importSuccessMsg"></strong>
+                            <div class="mt-2">
+                                <a href="/Import/History" class="btn btn-success btn-sm me-2">
+                                    <i class="bi bi-clock-history me-1"></i>View History
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="updateProgressSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-arrow-repeat me-2"></i>Update Progress</h6>
+                        <div class="import-progress">
+                            <div class="progress">
+                                <div id="updateProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div id="updateProgressStatus" class="text-center mt-2 text-muted">Initializing...</div>
+                        <div id="updateErrorAlert" class="alert alert-danger mt-3 d-none">
+                            <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Standalone Update Dashboard Data section --}}
+    <div class="row justify-content-center mt-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-success">
+                <div class="card-header bg-success bg-opacity-10">
+                    <h6 class="mb-0 text-success"><i class="bi bi-database-fill-up me-2"></i>Update Dashboard Data</h6>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted mb-3">
+                        After importing BER data, click the button below to rebuild the dashboard dataset.
+                        This will copy all records from <strong>BerSapData</strong> into <strong>BERData</strong>
+                        and enrich them with sector, fund, GL and cost-centre mappings.
+                    </p>
+
+                    <div class="d-grid">
+                        <button type="button" class="btn btn-success btn-lg" id="updateDataBtn" onclick="updateBERData()">
+                            <i class="bi bi-arrow-repeat me-2"></i>Update Dashboard Data
+                        </button>
+                    </div>
+
+                    <div id="updateStepsSection" class="mt-4 d-none">
+                        <h6 class="mb-3"><i class="bi bi-list-check me-2"></i>Update Steps</h6>
+                        <ul class="list-group list-group-flush mb-3" id="updateStepsList">
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-1">
+                                <span class="step-icon" id="step-icon-1"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 1: Copy records from BerSapData to BERData</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-1">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-2">
+                                <span class="step-icon" id="step-icon-2"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 2: Merge allocated budget from Original Budget</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-2">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-3">
+                                <span class="step-icon" id="step-icon-3"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 3: Update Fund description &amp; Sector</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-3">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-4">
+                                <span class="step-icon" id="step-icon-4"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 4: Update GL descriptions</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-4">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-5">
+                                <span class="step-icon" id="step-icon-5"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 5: Update Cost Centre mappings</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-5">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-6">
+                                <span class="step-icon" id="step-icon-6"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 6: Update Department Names</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-6">Waiting</span>
+                            </li>
+                        </ul>
+
+                        <div class="progress mb-2" style="height:20px;">
+                            <div id="updateOverallBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                                 style="width:0%" role="progressbar"></div>
+                        </div>
+                        <div id="updateOverallStatus" class="text-center text-muted small mb-3">Starting…</div>
+
+                        <div id="updateSuccessResult" class="alert alert-success d-none">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong id="updateSuccessMsg"></strong>
+                            <div class="mt-2">
+                                <a href="/Dashboard" class="btn btn-success btn-sm me-2">
+                                    <i class="bi bi-speedometer2 me-1"></i>View Dashboard
+                                </a>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetUpdateSection()">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Run Again
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="updateErrorResult" class="alert alert-danger d-none">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>Update failed: </strong><span id="updateErrorMsg"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<style>
+    .spin-icon { display: inline-block; animation: spin 1s linear infinite; }
+    @@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+<script>
+    var berSelectedFile = null;
+
+    function safeJsonBer(response) {
+        if (response.status === 401 || response.redirected) {
+            window.location.href = '/Account/Login';
+            return Promise.reject(null);
+        }
+        if (response.status === 413) {
+            return Promise.reject(new Error('File is too large. Maximum allowed size is 50 MB. Please reduce the file size and try again.'));
+        }
+        var ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            return Promise.reject(new Error('Server error (HTTP ' + response.status + '). Please try again or contact support.'));
+        }
+        return response.json();
+    }
+
+    document.getElementById('berFile').addEventListener('change', function () {
+        if (this.files && this.files.length > 0) handleBerFile(this.files[0]);
+    });
+
+    var berDropZone = document.getElementById('dropZone');
+    berDropZone.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.add('dragover'); });
+    berDropZone.addEventListener('dragleave', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover'); });
+    berDropZone.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleBerFile(e.dataTransfer.files[0]);
+    });
+
+    function handleBerFile(file) {
+        var ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+        if (ext !== '.xlsx' && ext !== '.xls') { showToast('error', 'Invalid file type. Only .xlsx and .xls allowed.'); return; }
+        if (file.size > 52428800) { showToast('error', 'File size exceeds 50 MB limit.'); return; }
+        berSelectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+        document.getElementById('fileInfo').classList.remove('d-none');
+        document.getElementById('previewBtn').disabled = false;
+        document.getElementById('importBtn').disabled = false;
+    }
+
+    function previewFile() {
+        if (!berSelectedFile) return;
+        var fd = new FormData();
+        fd.append('ExcelFile', berSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', document.getElementById('importType').value);
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+        showLoading();
+        fetch('/Import/Preview', { method: 'POST', body: fd })
+            .then(safeJsonBer)
+            .then(function (r) {
+                hideLoading();
+                if (r.success) { renderBerPreview(r.preview); } else { showToast('error', r.message); }
+            })
+            .catch(function (err) { hideLoading(); if (err) showToast('error', err.message || 'Preview failed.'); });
+    }
+
+    function renderBerPreview(preview) {
+        document.getElementById('previewSection').classList.remove('d-none');
+        document.getElementById('previewStats').textContent = 'Total: ' + preview.totalRecords + ' | Valid: ' + preview.validRecords;
+        if (preview.validationErrors && preview.validationErrors.length > 0) {
+            var e = document.getElementById('validationErrors');
+            e.innerHTML = '<strong>Errors:</strong><br/>' + preview.validationErrors.join('<br/>');
+            e.classList.remove('d-none');
+        }
+        var headers = preview.previewData && preview.previewData.length > 0 ? Object.keys(preview.previewData[0]) : [];
+        document.querySelector('#previewTable thead').innerHTML = headers.length ? '<tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>' : '';
+        document.querySelector('#previewTable tbody').innerHTML = preview.previewData.map(function (row) {
+            return '<tr>' + headers.map(function (h) { return '<td>' + (row[h] != null ? row[h] : '') + '</td>'; }).join('') + '</tr>';
+        }).join('');
+        document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function importFile() {
+        if (!berSelectedFile || !confirm('Import this BER file?\n\nThis will DELETE all existing BER staging data and insert fresh records from the file.')) return;
+
+        // Reset UI
+        document.getElementById('progressSection').classList.remove('d-none');
+        document.getElementById('importErrorAlert').classList.add('d-none');
+        document.getElementById('importSuccessAlert').classList.add('d-none');
+        document.getElementById('importBtn').disabled = true;
+        document.getElementById('previewBtn').disabled = true;
+        setImpStep(0, null);
+
+        // ── Step 1: Upload & preview (server reads the file) ────────────
+        setImpStep(1, 'running');
+        setImpProgress(10, 'Uploading file to server…');
+
+        var fd = new FormData();
+        fd.append('ExcelFile', berSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', document.getElementById('importType').value);
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+
+        fetch('/Import/Preview', { method: 'POST', body: fd })
+            .then(safeJsonBer)
+            .then(function (r) {
+                if (!r.success) { impFail(1, r.message); return Promise.reject(null); }
+                setImpStep(1, 'done');
+                setImpProgress(25, 'File validated. Clearing old staging data…');
+
+                // ── Step 2: Clear old data (happens inside Import on the server)
+                setImpStep(2, 'running');
+                setImpProgress(35, 'Deleting old BER staging data (TRUNCATE)…');
+
+                // ── Step 3: Bulk insert ──────────────────────────────────
+                setImpStep(3, 'running');
+                setImpProgress(45, 'Inserting rows — this may take a minute for large files…');
+
+                return fetch('/Import/Import', {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value }
+                });
+            })
+            .then(function (r) {
+                if (!r) return Promise.reject(null);
+                if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+                if (r.status === 413) return Promise.reject(new Error('File is too large (max 50 MB).'));
+                if (!r.ok) return Promise.reject(new Error('Import failed (HTTP ' + r.status + ').'));
+                return r.json();
+            })
+            .then(function (r) {
+                if (!r) return;
+                if (r.success) {
+                    setImpStep(2, 'done');
+                    setImpStep(3, 'done');
+
+                    // ── Step 4: Save history ─────────────────────────────
+                    setImpStep(4, 'running');
+                    setImpProgress(90, 'Saving import history…');
+                    setTimeout(function () {
+                        setImpStep(4, 'done');
+                        setImpProgress(100, 'Import complete!');
+
+                        var msg = 'Import completed. BER records: ' + r.berCount;
+                        if (r.originalCount > 0) msg += ', Original Budget: ' + r.originalCount;
+                        document.getElementById('importSuccessMsg').textContent = msg;
+                        document.getElementById('importSuccessAlert').classList.remove('d-none');
+                        showToast('success', msg);
+                    }, 300);
+                } else {
+                    impFail(3, r.message);
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                }
+            })
+            .catch(function (err) {
+                if (!err) return;
+                impFail(0, err.message || 'An unexpected error occurred.');
+                document.getElementById('importBtn').disabled = false;
+                document.getElementById('previewBtn').disabled = false;
+            });
+    }
+
+    function setImpProgress(pct, msg) {
+        var bar = document.getElementById('importProgressBar');
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        if (pct >= 100) bar.classList.remove('progress-bar-animated');
+        document.getElementById('progressStatus').textContent = msg;
+    }
+
+    function setImpStep(stepNum, state) {
+        var steps = stepNum === 0 ? [1, 2, 3, 4] : [stepNum];
+        steps.forEach(function (n) {
+            var icon  = document.getElementById('imp-icon-' + n);
+            var badge = document.getElementById('imp-badge-' + n);
+            var row   = document.getElementById('imp-row-' + n);
+            if (!icon || !badge) return;
+            if (state === null) {
+                icon.innerHTML  = '<i class="bi bi-circle text-muted"></i>';
+                badge.textContent = 'Waiting'; badge.className = 'ms-auto badge bg-secondary';
+                row.classList.remove('list-group-item-success', 'list-group-item-danger', 'list-group-item-warning');
+            } else if (state === 'running') {
+                icon.innerHTML  = '<i class="bi bi-arrow-repeat text-primary spin-icon"></i>';
+                badge.textContent = 'Running…'; badge.className = 'ms-auto badge bg-primary';
+                row.classList.add('list-group-item-warning');
+            } else if (state === 'done') {
+                icon.innerHTML  = '<i class="bi bi-check-circle-fill text-success"></i>';
+                badge.textContent = 'Done'; badge.className = 'ms-auto badge bg-success';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-success');
+            } else if (state === 'error') {
+                icon.innerHTML  = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                badge.textContent = 'Failed'; badge.className = 'ms-auto badge bg-danger';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-danger');
+            }
+        });
+    }
+
+    function impFail(stepNum, message) {
+        if (stepNum > 0) setImpStep(stepNum, 'error');
+        setImpProgress(100, 'Failed.');
+        var a = document.getElementById('importErrorAlert');
+        a.querySelector('span').textContent = message;
+        a.classList.remove('d-none');
+        a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        showToast('error', message);
+    }
+
+    function updateBERData() {
+        if (!confirm('Update Dashboard Data?\n\nThis will clear BERData and rebuild it from the BerSapData staging table.\nEach step runs and commits independently — data saved by each step is visible to the next.\n\nThis may take a few minutes. Continue?')) return;
+
+        var btn = document.getElementById('updateDataBtn');
+        btn.disabled = true;
+
+        document.getElementById('updateStepsSection').classList.remove('d-none');
+        document.getElementById('updateSuccessResult').classList.add('d-none');
+        document.getElementById('updateErrorResult').classList.add('d-none');
+        setUpdateStep(0, null);
+        setUpdateOverall(0, 'Starting…');
+
+        var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+        var totalRows = 0;
+
+        runStep(1, token, function (r1) {
+            totalRows = r1.rowsCopied || 0;
+            runStep(2, token, function () {
+                runStep(3, token, function () {
+                    runStep(4, token, function () {
+                        runStep(5, token, function () {
+                            runStep(6, token, function () {
+                                setUpdateOverall(100, 'All steps completed successfully!');
+                                var msg = 'Dashboard updated. ' + totalRows + ' records processed.';
+                                document.getElementById('updateSuccessMsg').textContent = msg;
+                                document.getElementById('updateSuccessResult').classList.remove('d-none');
+                                showToast('success', msg);
+                                btn.disabled = false;
+                            }, btn);
+                        }, btn);
+                    }, btn);
+                }, btn);
+            }, btn);
+        }, btn);
+    }
+
+    function runStep(step, token, onSuccess, btn) {
+        setUpdateStep(step, 'running');
+        setUpdateOverall(Math.round((step - 1) * 100 / 6) + 2, 'Running Step ' + step + ' of 6…');
+
+        fetch('/Import/UpdateBERDataStep?step=' + step, {
+            method: 'POST',
+            headers: { 'RequestVerificationToken': token }
+        })
+        .then(function (r) {
+            if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+            var ct = r.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) return Promise.reject(new Error('Server error (HTTP ' + r.status + ').'));
+            return r.json();
+        })
+        .then(function (r) {
+            if (!r) return;
+            if (r.success) {
+                setUpdateStep(step, 'done');
+                setUpdateOverall(Math.round(step * 100 / 6), 'Step ' + step + ' of 6 complete');
+                if (onSuccess) onSuccess(r);
+            } else {
+                setUpdateStep(step, 'error');
+                setUpdateOverall(Math.round((step - 1) * 100 / 6), 'Failed at Step ' + step);
+                document.getElementById('updateErrorMsg').textContent = r.message || 'Unknown error.';
+                document.getElementById('updateErrorResult').classList.remove('d-none');
+                showToast('error', 'Step ' + step + ' failed: ' + (r.message || ''));
+                if (btn) btn.disabled = false;
+            }
+        })
+        .catch(function (err) {
+            if (!err) return;
+            setUpdateStep(step, 'error');
+            setUpdateOverall(0, 'Failed.');
+            document.getElementById('updateErrorMsg').textContent = err.message || 'An unexpected error occurred.';
+            document.getElementById('updateErrorResult').classList.remove('d-none');
+            showToast('error', err.message || 'An unexpected error occurred.');
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    function animateStepsComplete(steps, done) {
+        // no longer used — kept for compatibility
+        if (done) done();
+    }
+
+    function setUpdateStep(stepNum, state) {
+        // state: null=reset all, 'running', 'done', 'error'
+        var steps = stepNum === 0 ? [1,2,3,4,5] : [stepNum];
+        steps.forEach(function (n) {
+            var icon = document.getElementById('step-icon-' + n);
+            var badge = document.getElementById('step-badge-' + n);
+            var row = document.getElementById('step-row-' + n);
+            if (!icon || !badge) return;
+            if (state === null || state === undefined) {
+                icon.innerHTML = '<i class="bi bi-circle text-muted"></i>';
+                badge.textContent = 'Waiting'; badge.className = 'ms-auto badge bg-secondary';
+                row.classList.remove('list-group-item-success', 'list-group-item-danger', 'list-group-item-warning');
+            } else if (state === 'running') {
+                icon.innerHTML = '<i class="bi bi-arrow-repeat text-primary spin-icon"></i>';
+                badge.textContent = 'Running…'; badge.className = 'ms-auto badge bg-primary';
+                row.classList.add('list-group-item-warning');
+            } else if (state === 'done') {
+                icon.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+                badge.textContent = 'Done'; badge.className = 'ms-auto badge bg-success';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-success');
+            } else if (state === 'error') {
+                icon.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                badge.textContent = 'Failed'; badge.className = 'ms-auto badge bg-danger';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-danger');
+            }
+        });
+    }
+
+    function setUpdateOverall(pct, msg) {
+        var bar = document.getElementById('updateOverallBar');
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        if (pct >= 100) bar.classList.remove('progress-bar-animated');
+        document.getElementById('updateOverallStatus').textContent = msg;
+    }
+
+    function resetUpdateSection() {
+        document.getElementById('updateStepsSection').classList.add('d-none');
+        document.getElementById('updateSuccessResult').classList.add('d-none');
+        document.getElementById('updateErrorResult').classList.add('d-none');
+        setUpdateStep(0, null);
+        setUpdateOverall(0, 'Starting…');
+        document.getElementById('updateDataBtn').disabled = false;
+    }
+</script>
+}

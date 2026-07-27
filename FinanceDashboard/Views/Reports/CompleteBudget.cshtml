@@ -1,0 +1,1252 @@
+@{
+    ViewData["Title"] = "Complete Budget – Pivot Report";
+}
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    var xsrfToken = Antiforgery.GetAndStoreTokens(Context).RequestToken!;
+}
+
+@section Styles {
+<style>
+/* ══════════════════════════════════════════════════════
+   COMPLETE BUDGET — PIVOT REPORT
+══════════════════════════════════════════════════════ */
+
+/* Settings bar */
+.rpt-bar {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: .85rem 1.1rem .7rem;
+    margin-bottom: .6rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+}
+.rpt-bar-title {
+    font-size: .68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: #888; margin-bottom: .55rem;
+}
+.rpt-bar-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .65rem; }
+
+/* Field wrapper */
+.rpt-fld { display: flex; flex-direction: column; gap: 3px; }
+.rpt-fld > label {
+    font-size: .7rem; font-weight: 600; color: #5a6475; white-space: nowrap;
+}
+.rpt-fld select, .rpt-fld input[type=text] {
+    font-size: .82rem;
+    border: 1px solid #ced4da; border-radius: 5px;
+    padding: .3rem .65rem;
+    background: #fff; color: #1a2a3a;
+    min-width: 155px;
+    transition: border-color .15s, box-shadow .15s;
+}
+.rpt-fld select:focus, .rpt-fld input:focus {
+    outline: none; border-color: #1f497d;
+    box-shadow: 0 0 0 2px rgba(31,73,125,.13);
+}
+
+/* View toggle */
+.view-toggle {
+    display: flex; border: 1px solid #ced4da; border-radius: 5px; overflow: hidden;
+}
+.vt-btn {
+    padding: .3rem .95rem; font-size: .8rem; font-weight: 500;
+    border: none; background: #f8f9fa; cursor: pointer; color: #555;
+    transition: background .12s, color .12s;
+}
+.vt-btn:not(:last-child) { border-right: 1px solid #ced4da; }
+.vt-btn.active { background: #1f497d; color: #fff; font-weight: 600; }
+
+/* Value chips */
+.val-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.val-chip {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 20px;
+    border: 1px solid #ced4da; background: #f8f9fa;
+    font-size: .76rem; cursor: pointer; color: #555;
+    transition: all .12s; user-select: none;
+}
+.val-chip input[type=checkbox] { display: none; }
+.val-chip.checked { background: #1f497d; border-color: #1f497d; color: #fff; font-weight: 600; }
+
+/* Filter bar */
+.filter-bar {
+    background: #fff;
+    border: 1px solid #dee2e6; border-radius: 8px;
+    padding: .65rem 1.1rem .6rem;
+    margin-bottom: .6rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+.filter-bar-title {
+    font-size: .68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .1em; color: #888; margin-bottom: .45rem;
+}
+.filter-bar-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.filter-bar-row .rpt-fld { flex: 1; min-width: 150px; max-width: 220px; }
+
+/* ── Multi-select dropdown ─────────────────────── */
+.ms-dd { position: relative; }
+.ms-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid #ced4da; border-radius: 5px;
+    padding: .3rem .65rem; background: #fff; cursor: pointer;
+    font-size: .82rem; color: #1a2a3a; min-width: 0; width: 100%;
+    transition: border-color .15s, box-shadow .15s;
+    user-select: none; white-space: nowrap;
+}
+.ms-trigger:focus { outline: none; border-color: #1f497d; box-shadow: 0 0 0 2px rgba(31,73,125,.13); }
+.ms-trigger.open { border-color: #1f497d; box-shadow: 0 0 0 2px rgba(31,73,125,.13); }
+.ms-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #1f497d; color: #fff; font-size: .65rem; font-weight: 700;
+    border-radius: 9px; padding: 0 5px; min-width: 17px; height: 17px;
+    margin-left: 5px; flex-shrink: 0;
+}
+.ms-badge.hidden { display: none; }
+.ms-caret { margin-left: 6px; flex-shrink: 0; color: #888; font-size: .7rem; transition: transform .15s; }
+.ms-trigger.open .ms-caret { transform: rotate(180deg); }
+
+.ms-panel {
+    display: none; position: absolute; top: calc(100% + 2px); left: 0;
+    min-width: 240px; max-width: 320px; z-index: 900;
+    background: #fff; border: 1px solid #ced4da; border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12);
+}
+.ms-panel.open { display: block; }
+.ms-search {
+    border: none; border-bottom: 1px solid #eee;
+    padding: .4rem .7rem; width: 100%; font-size: .8rem;
+    border-radius: 5px 5px 0 0; outline: none;
+}
+.ms-list {
+    max-height: 220px; overflow-y: auto;
+    padding: .3rem 0;
+}
+.ms-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: .3rem .8rem; font-size: .81rem; cursor: pointer;
+    transition: background .1s;
+}
+.ms-item:hover { background: #f0f4fa; }
+.ms-item input[type=checkbox] { margin: 0; accent-color: #1f497d; flex-shrink: 0; }
+.ms-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-loading, .ms-empty {
+    padding: .7rem .8rem; font-size: .79rem; color: #999; text-align: center;
+}
+.ms-footer {
+    border-top: 1px solid #eee; padding: .3rem .7rem;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: .75rem;
+}
+.ms-footer a { cursor: pointer; color: #1f497d; text-decoration: none; }
+.ms-footer a:hover { text-decoration: underline; }
+
+/* ── Row Hierarchy Builder ─────────────────────── */
+.hier-wrap {
+    display: flex; flex-direction: column; gap: 4px;
+    min-width: 280px;
+}
+.hier-label {
+    font-size: .7rem; font-weight: 600; color: #5a6475; margin-bottom: 2px;
+}
+.hier-list { display: flex; flex-direction: column; gap: 3px; }
+.hier-item {
+    display: flex; align-items: center; gap: 5px;
+    background: #f0f4fa; border: 1px solid #d0d8e8;
+    border-radius: 5px; padding: 3px 6px;
+    font-size: .79rem; color: #1a2a3a;
+    cursor: grab; user-select: none;
+}
+.hier-item.drag-over { border-color: #1f497d; background: #dce8f8; }
+.hier-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #1f497d; color: #fff; font-size: .62rem; font-weight: 700;
+    border-radius: 50%; width: 16px; height: 16px; flex-shrink: 0;
+}
+.hier-name { flex: 1; }
+.hier-del {
+    background: none; border: none; padding: 0 2px;
+    color: #aaa; cursor: pointer; font-size: .85rem; line-height: 1;
+}
+.hier-del:hover { color: #d32f2f; }
+.hier-add-row { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+.hier-add-sel {
+    flex: 1; font-size: .79rem;
+    border: 1px solid #ced4da; border-radius: 5px;
+    padding: .22rem .5rem; background: #fff; color: #1a2a3a;
+}
+.hier-add-btn {
+    padding: .22rem .6rem; font-size: .79rem;
+    border: 1px solid #1f497d; border-radius: 5px;
+    background: #1f497d; color: #fff; cursor: pointer;
+    white-space: nowrap;
+}
+.hier-add-btn:hover { background: #163868; }
+
+/* Results */
+.pivot-container {
+    background: #fff;
+    border: 1px solid #dee2e6; border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    position: relative;
+}
+.pivot-meta {
+    padding: .4rem .9rem;
+    font-size: .78rem; color: #888;
+    border-bottom: 1px solid #f0f0f0;
+    background: #fafbfc;
+}
+
+/* Loading overlay */
+.pv-loader {
+    display: none; position: absolute; inset: 0;
+    background: rgba(255,255,255,.82);
+    z-index: 30; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+}
+.pv-loader.active { display: flex; }
+
+/* Scrollable table wrapper */
+.pv-scroll { overflow: auto; max-height: calc(100vh - 340px); }
+
+/* The pivot table */
+.pv-table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    font-size: .81rem; white-space: nowrap;
+}
+
+/* Header */
+.pv-table thead th {
+    background: #1a3a5c; color: #fff;
+    padding: 9px 16px;
+    border-right: 1px solid #25456e;
+    border-bottom: 2px solid #0f2740;
+    position: sticky; top: 0; z-index: 10;
+    font-weight: 600; font-size: .79rem; letter-spacing: .02em;
+}
+.pv-table thead th.th-dim { text-align: left; min-width: 300px; }
+.pv-table thead th.th-val { text-align: right; min-width: 120px; white-space: nowrap; }
+.pv-table thead th.th-total { background: #253f5a; text-align: right; }
+
+/* Body */
+.pv-table tbody td {
+    padding: 6px 16px;
+    border-bottom: 1px solid #f0f2f5;
+    border-right: 1px solid #f5f6f8;
+    vertical-align: middle;
+}
+.pv-table tbody td.td-dim { text-align: left; }
+.pv-table tbody td.td-val { text-align: right; font-family: 'Consolas', 'Courier New', monospace; font-size: .8rem; }
+.pv-table tbody tr:hover td { background: #f4f7fb !important; }
+
+/* Row states */
+.pv-table tr.row-subtotal td { background: #e8eef8 !important; font-weight: 600; font-style: italic; }
+.pv-table tr.row-grandtotal td { background: #1a3a5c !important; color: #fff !important; font-weight: 700; border-bottom: none; }
+.pv-table tr.row-grandtotal td.td-val { font-family: 'Consolas', 'Courier New', monospace; }
+
+/* Negative numbers */
+.neg { color: #d32f2f !important; }
+
+/* Expand triangle */
+.tri {
+    display: inline-block; vertical-align: middle;
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 5px 0 5px 8px;
+    border-color: transparent transparent transparent #1a3a5c;
+    cursor: pointer; margin-right: 7px;
+    transition: transform .15s; flex-shrink: 0;
+}
+.tri.open { transform: rotate(90deg); }
+
+.dim-text { vertical-align: middle; }
+.child-count { color: #999; font-size: .73rem; margin-left: 5px; }
+
+/* Indent per depth */
+.d1 .dim-text { margin-left: 20px; }
+.d2 .dim-text { margin-left: 40px; }
+.d3 .dim-text { margin-left: 60px; }
+
+/* Empty state */
+.pv-empty { padding: 3.5rem 0; text-align: center; color: #bbb; }
+.pv-empty i { font-size: 2.8rem; display: block; margin-bottom: .5rem; }
+
+/* Pager */
+.pv-pager {
+    display: none;
+    align-items: center; gap: .5rem;
+    padding: .4rem .9rem; font-size: .79rem; color: #666;
+    border-top: 1px solid #f0f0f0; background: #fafbfc;
+}
+.pv-pager.show { display: flex; }
+
+/* Drill modal */
+#drillModal .modal-dialog { max-width: 88vw; }
+.drill-table-wrap { max-height: 58vh; overflow: auto; }
+.drill-table { font-size: .77rem; }
+.drill-table thead th { background: #1a3a5c; color: #fff; position: sticky; top: 0; white-space: nowrap; padding: 6px 10px; }
+.drill-table tbody td { padding: 4px 10px; white-space: nowrap; }
+</style>
+}
+
+@* Token input for AJAX *@
+<input type="hidden" id="xsrfToken" value="@xsrfToken" />
+
+<div class="fade-in">
+
+    <!-- ══════════════════════════════════════════════
+         REPORT SETTINGS
+    ══════════════════════════════════════════════ -->
+    <div class="rpt-bar">
+        <div class="rpt-bar-title">Report Settings</div>
+
+        <div class="rpt-bar-row">
+
+            <!-- View -->
+            <div class="rpt-fld">
+                <label>View</label>
+                <div class="view-toggle">
+                    <button type="button" class="vt-btn active" id="btnGroup" onclick="setView('group')">Group Summary</button>
+                    <button type="button" class="vt-btn" id="btnCross"  onclick="setView('cross')">Cross-tab</button>
+                </div>
+            </div>
+
+            <!-- Row Hierarchy -->
+            <div class="rpt-fld">
+                <div class="hier-wrap" id="hierWrap">
+                    <div class="hier-label">Row Hierarchy (levels drilled top → bottom)</div>
+                    <div class="hier-list" id="hierList">
+                        <!-- items injected by JS -->
+                    </div>
+                    <div class="hier-add-row">
+                        <select class="hier-add-sel" id="hierAddSel">
+                            <option value="">— add level —</option>
+                            <option value="Sector">Sector</option>
+                            <option value="DepartmentName">Department</option>
+                            <option value="AttachedDepartment">Attached Department</option>
+                            <option value="FundCode">Fund Code</option>
+                            <option value="Fund_Des">Fund / Grant</option>
+                            <option value="FundCenterCode">Fund Center</option>
+                            <option value="FundCenterDescription">Fund Center Desc</option>
+                            <option value="SubDetailFunction">Sub Detail Function</option>
+                            <option value="DetailObject">Detail Object</option>
+                            <option value="GL_Desc">GL Description</option>
+                            <option value="ProfitCenter">Profit Center</option>
+                            <option value="FinancialYear">Financial Year</option>
+                        </select>
+                        <button type="button" class="hier-add-btn" id="hierAddBtn">+ Add</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column Dimension (cross-tab only) -->
+            <div class="rpt-fld" id="colDimWrap" style="display:none">
+                <label for="selCol">Column Dimension</label>
+                <select id="selCol">
+                    <option value="FinancialYear">Financial Year</option>
+                    <option value="FundCode">Fund Code</option>
+                    <option value="DepartmentName">Department</option>
+                    <option value="ProfitCenter">Profit Center</option>
+                </select>
+            </div>
+
+            <!-- Sort -->
+            <div class="rpt-fld">
+                <label for="selSort">Sort By</label>
+                <select id="selSort">
+                    <option value="name_asc">Name  (A → Z)</option>
+                    <option value="name_desc">Name  (Z → A)</option>
+                    <option value="val_desc">Value  (High → Low)</option>
+                    <option value="val_asc">Value  (Low → High)</option>
+                </select>
+            </div>
+
+            <!-- Options -->
+            <div class="rpt-fld">
+                <label>Options</label>
+                <div class="d-flex gap-3 align-items-center" style="padding-top:5px">
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" id="optSub" checked>
+                        <label class="form-check-label" style="font-size:.78rem" for="optSub">Sub-totals</label>
+                    </div>
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" id="optGT" checked>
+                        <label class="form-check-label" style="font-size:.78rem" for="optGT">Grand Total</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page size -->
+            <div class="rpt-fld">
+                <label for="selPage">Page Size</label>
+                <select id="selPage" style="min-width:90px">
+                    <option value="100">100</option>
+                    <option value="200" selected>200</option>
+                    <option value="500">500</option>
+                    <option value="1000">1 000</option>
+                </select>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="rpt-fld ms-auto">
+                <label>&nbsp;</label>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm px-4" id="btnRun" style="font-size:.82rem">
+                        <i class="bi bi-play-fill me-1"></i>Run
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" id="btnCsv" style="font-size:.82rem" title="Export CSV">
+                        <i class="bi bi-download me-1"></i>CSV
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" id="btnXls" style="font-size:.82rem" title="Export Excel">
+                        <i class="bi bi-file-earmark-excel me-1"></i>Excel
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="pvPrint()" title="Print" style="font-size:.82rem">
+                        <i class="bi bi-printer"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Value chips -->
+        <div class="mt-2">
+            <span class="rpt-bar-title" style="display:inline-block;margin-bottom:.3rem">Values to aggregate:</span>
+            <div class="val-chips" id="valChips">
+                @foreach (var v in new[] {
+                    ("AllocatedBudget",       "Allocated Budget"),
+                    ("BudgetGrant",           "Orig. Budget (Budget Grant)"),
+                    ("SupplementaryGrant",    "Suppl. Grant"),
+                    ("ReappropriationPlus",   "Reapp (+)"),
+                    ("ReappropriationMinus",  "Reapp (-)"),
+                    ("TSSSurrender",          "TSS/Surrender"),
+                    ("FinalGrant",            "Final Grant"),
+                    ("Releases",              "Releases"),
+                    ("ActualExpenditure",     "Actual Exp."),
+                    ("FinalGrantBalance",     "Balance")
+                })
+                {
+                    var isDefault = v.Item1 is "AllocatedBudget" or "BudgetGrant" or "Releases" or "ActualExpenditure" or "FinalGrantBalance";
+                    <label class="val-chip @(isDefault ? "checked" : "")">
+                        <input type="checkbox" value="@v.Item1" @(isDefault ? "checked" : "")>
+                        @v.Item2
+                    </label>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════
+         FILTERS
+    ══════════════════════════════════════════════ -->
+    <div class="filter-bar">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+            <span class="filter-bar-title mb-0">Filters</span>
+            <a href="#" id="lnkClear" class="text-muted" style="font-size:.75rem">Clear all</a>
+        </div>
+        <div class="filter-bar-row">
+            <div class="rpt-fld"><label>Financial Year</label>
+                <div class="ms-dd" data-col="FinancialYear">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>Sector</label>
+                <div class="ms-dd" data-col="Sector">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>Department</label>
+                <div class="ms-dd" data-col="DepartmentName">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>Fund / Grant</label>
+                <div class="ms-dd" data-col="Fund_Des">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>Cost Centers</label>
+                <div class="ms-dd" data-col="FundCenterDescription">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>GL Description</label>
+                <div class="ms-dd" data-col="GL_Desc">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+            <div class="rpt-fld"><label>Sub Detail Fn</label>
+                <div class="ms-dd" data-col="SubDetailFunction">
+                    <div class="ms-trigger" tabindex="0"><span class="ms-label">All</span><span class="ms-badge hidden">0</span><span class="ms-caret">▼</span></div>
+                    <div class="ms-panel"><input class="ms-search" type="text" placeholder="Search…"><div class="ms-list"><div class="ms-loading">Loading…</div></div><div class="ms-footer"><a class="ms-sel-all">All</a><a class="ms-clr">Clear</a></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════
+         RESULTS
+    ══════════════════════════════════════════════ -->
+    <div class="pivot-container">
+        <!-- Loader -->
+        <div class="pv-loader" id="pvLoader">
+            <div class="spinner-border text-primary" style="width:2.2rem;height:2.2rem"></div>
+            <span class="text-muted" style="font-size:.82rem">Running query…</span>
+        </div>
+
+        <!-- Meta row -->
+        <div class="pivot-meta" id="pvMeta">
+            <span class="text-muted">Configure settings and click <strong>Run</strong> to load data.</span>
+        </div>
+
+        <!-- Table -->
+        <div class="pv-scroll" id="pvScroll">
+            <div class="pv-empty" id="pvEmpty">
+                <i class="bi bi-table"></i>
+                No data loaded yet.
+            </div>
+            <table class="pv-table d-none" id="pvTable">
+                <thead id="pvThead"></thead>
+                <tbody id="pvTbody"></tbody>
+            </table>
+        </div>
+
+        <!-- Pager -->
+        <div class="pv-pager" id="pvPager">
+            <button class="btn btn-outline-secondary btn-sm" id="btnPrev" disabled><i class="bi bi-chevron-left"></i></button>
+            <span id="pvPagerInfo"></span>
+            <button class="btn btn-outline-secondary btn-sm" id="btnNext" disabled><i class="bi bi-chevron-right"></i></button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     DRILL-DOWN MODAL
+══════════════════════════════════════════════ -->
+<div class="modal fade" id="drillModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header py-2" style="background:#1a3a5c">
+                <h6 class="modal-title text-white mb-0">
+                    <i class="bi bi-zoom-in me-2"></i><span id="drillTitle">Detail Records</span>
+                </h6>
+                <button type="button" class="btn-close btn-close-white btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-2">
+                <div id="drillMeta" class="text-muted small mb-1"></div>
+                <div class="drill-table-wrap">
+                    <table class="table table-sm table-bordered table-striped drill-table mb-0" id="drillTable">
+                        <thead id="drillThead"></thead>
+                        <tbody id="drillTbody"></tbody>
+                    </table>
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <button class="btn btn-outline-secondary btn-sm" id="btnDrillPrev" disabled><i class="bi bi-chevron-left"></i></button>
+                    <span id="drillPager" class="text-muted small"></span>
+                    <button class="btn btn-outline-secondary btn-sm" id="btnDrillNext" disabled><i class="bi bi-chevron-right"></i></button>
+                </div>
+            </div>
+            <div class="modal-footer py-1">
+                <button class="btn btn-sm btn-success" id="btnDrillCsv"><i class="bi bi-download me-1"></i>Export CSV</button>
+                <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+/* ════════════════════════════════════════════════════
+   PIVOT ENGINE  –  Complete Budget / BER Data
+════════════════════════════════════════════════════ */
+'use strict';
+
+// ─── State ────────────────────────────────────────
+const PV = {
+    view:       'group',
+    page:       1,
+    totalPages: 1,
+    totalRows:  0,
+    lastReq:    null,
+    lastData:   null,
+    collapsed:  new Set(),
+    // drill
+    drillDimF:  {},
+    drillPage:  1,
+    drillPages: 1,
+    drillSize:  100,
+    get tok() { return document.getElementById('xsrfToken')?.value || ''; }
+};
+
+// ─── Init ─────────────────────────────────────────
+$(function () {
+    $('#btnRun').on('click', () => pvRun(true));
+    $('#btnCsv').on('click', () => pvExport('/Pivot/ExportCsv'));
+    $('#btnXls').on('click', () => pvExport('/Pivot/ExportExcel'));
+    $('#lnkClear').on('click', e => { e.preventDefault(); msClearAll(); });
+
+    $('#btnPrev').on('click', () => { if (PV.page > 1) { PV.page--; pvRun(false); } });
+    $('#btnNext').on('click', () => { if (PV.page < PV.totalPages) { PV.page++; pvRun(false); } });
+
+    $('#btnDrillPrev').on('click', () => { if (PV.drillPage > 1) { PV.drillPage--; drillLoad(); } });
+    $('#btnDrillNext').on('click', () => { if (PV.drillPage < PV.drillPages) { PV.drillPage++; drillLoad(); } });
+    $('#btnDrillCsv').on('click', drillExportCsv);
+
+    // Chip toggle
+    $(document).on('click', '.val-chip', function () {
+        const $c = $(this);
+        const cb = $c.find('input')[0];
+        cb.checked = !cb.checked;
+        $c.toggleClass('checked', cb.checked);
+    });
+
+    // Keyboard shortcut
+    $(document).on('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') pvRun(true); });
+
+    // Boot multi-select dropdowns
+    msInit();
+
+    // Boot row hierarchy
+    hierInit();
+});
+
+// ─── View switch ──────────────────────────────────
+function setView(v) {
+    PV.view = v;
+    $('#btnGroup').toggleClass('active', v === 'group');
+    $('#btnCross').toggleClass('active', v === 'cross');
+    $('#colDimWrap').toggle(v === 'cross');
+}
+
+// ════════════════════════════════════════════════════
+//  ROW HIERARCHY ENGINE
+// ════════════════════════════════════════════════════
+const HIER = {
+    dims: [],   // ordered array of { value, label }
+    labels: {}  // value → display label map (populated from #hierAddSel options)
+};
+
+function hierInit() {
+    // Build label map from the add-select options
+    $('#hierAddSel option').each(function () {
+        if ($(this).val()) HIER.labels[$(this).val()] = $(this).text();
+    });
+
+    // Seed default: Sector as first level
+    hierAdd('DepartmentName');
+
+    // Wire add button
+    $('#hierAddBtn').on('click', function () {
+        const val = $('#hierAddSel').val();
+        if (!val) return;
+        hierAdd(val);
+        $('#hierAddSel').val('');
+    });
+
+    // Also add on Enter key in the select
+    $('#hierAddSel').on('change', function () {
+        const val = $(this).val();
+        if (val) { hierAdd(val); $(this).val(''); }
+    });
+}
+
+function hierAdd(value) {
+    if (!value) return;
+    // Prevent duplicates
+    if (HIER.dims.find(d => d.value === value)) return;
+    HIER.dims.push({ value, label: HIER.labels[value] || value });
+    hierRender();
+}
+
+function hierRemove(idx) {
+    HIER.dims.splice(idx, 1);
+    hierRender();
+}
+
+function hierRender() {
+    const $list = $('#hierList');
+    $list.empty();
+
+    if (!HIER.dims.length) {
+        $list.html('<div style="font-size:.75rem;color:#aaa;padding:3px 0">No levels — add one below.</div>');
+        return;
+    }
+
+    HIER.dims.forEach((d, i) => {
+        const $item = $(`
+            <div class="hier-item" draggable="true" data-idx="${i}">
+                <span class="hier-badge">${i + 1}</span>
+                <span class="hier-name">${esc(d.label)}</span>
+                <button class="hier-del" data-idx="${i}" title="Remove">×</button>
+            </div>`);
+        $list.append($item);
+    });
+
+    // Delete buttons
+    $list.find('.hier-del').on('click', function (e) {
+        e.stopPropagation();
+        hierRemove(parseInt($(this).data('idx')));
+    });
+
+    // Drag-to-reorder
+    let dragSrc = null;
+    $list.find('.hier-item').on('dragstart', function () {
+        dragSrc = parseInt($(this).data('idx'));
+        $(this).css('opacity', '0.5');
+    }).on('dragend', function () {
+        $(this).css('opacity', '');
+        $list.find('.hier-item').removeClass('drag-over');
+    }).on('dragover', function (e) {
+        e.preventDefault();
+        $list.find('.hier-item').removeClass('drag-over');
+        $(this).addClass('drag-over');
+    }).on('drop', function (e) {
+        e.preventDefault();
+        const dropIdx = parseInt($(this).data('idx'));
+        if (dragSrc === null || dragSrc === dropIdx) return;
+        const moved = HIER.dims.splice(dragSrc, 1)[0];
+        HIER.dims.splice(dropIdx, 0, moved);
+        hierRender();
+    });
+}
+
+// ─── Build request object ─────────────────────────
+function buildReq() {
+    // Row dimensions come from the hierarchy widget
+    const rowDims = HIER.dims.map(d => d.value);
+    if (!rowDims.length) rowDims.push('DepartmentName'); // safe fallback
+
+    const colDim = PV.view === 'cross' ? ($('#selCol').val() || null) : null;
+
+    // Selected value fields
+    const values = [];
+    $('#valChips input:checked').each(function () { values.push($(this).val()); });
+
+    // Multi-select filters
+    const filters = {};
+    $('.ms-dd').each(function () {
+        const col  = $(this).data('col');
+        const vals = msGetSelected(this);
+        if (vals.length) filters[col] = vals;
+    });
+
+    return {
+        rowDimensions:   rowDims,
+        columnDimension: colDim,
+        valueFields:     values.length ? values : ['AllocatedBudget','BudgetGrant','Releases','ActualExpenditure','FinalGrantBalance'],
+        filters,
+        page:     PV.page,
+        pageSize: parseInt($('#selPage').val()) || 200
+    };
+}
+
+// ─── Run pivot ────────────────────────────────────
+function pvRun(reset) {
+    if (reset) { PV.page = 1; PV.collapsed.clear(); }
+
+    const req = buildReq();
+    PV.lastReq = req;
+
+    $('#pvLoader').addClass('active');
+    $('#pvEmpty').hide();
+    $('#pvTable').addClass('d-none');
+    $('#pvMeta').html('<span class="text-muted">Running query…</span>');
+
+    $.ajax({
+        url:         '/Pivot/Execute',
+        method:      'POST',
+        contentType: 'application/json',
+        headers:     { 'RequestVerificationToken': PV.tok },
+        data:        JSON.stringify(req),
+        success: function (r) {
+            $('#pvLoader').removeClass('active');
+            if (!r.success) {
+                $('#pvMeta').html(`<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>${esc(r.message || 'Error running report.')}</span>`);
+                return;
+            }
+            PV.lastData   = r.data;
+            PV.totalRows  = r.data.totalRows  || 0;
+            PV.totalPages = r.data.totalPages || 1;
+            pvRender(r.data, req);
+            pvPager();
+        },
+        error: function (xhr) {
+            $('#pvLoader').removeClass('active');
+            const msg = xhr.status === 400 ? 'Bad request – check your settings.'
+                      : xhr.status === 401 ? 'Session expired – please log in again.'
+                      : xhr.status === 500 ? 'Server error – check application logs.'
+                      : `HTTP ${xhr.status}: ${xhr.statusText}`;
+            $('#pvMeta').html(`<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>${esc(msg)}</span>`);
+            console.error('Pivot error', xhr.status, xhr.responseText);
+        }
+    });
+}
+
+// ─── Render ───────────────────────────────────────
+// Human-readable labels for value field keys
+const VALUE_LABELS = {
+    AllocatedBudget:      'Allocated Budget',
+    BudgetGrant:          'Orig. Budget',
+    SupplementaryGrant:   'Suppl. Grant',
+    ReappropriationPlus:  'Reapp (+)',
+    ReappropriationMinus: 'Reapp (-)',
+    TSSSurrender:         'TSS/Surrender',
+    FinalGrant:           'Final Grant',
+    Releases:             'Releases',
+    ActualExpenditure:    'Actual Exp.',
+    FinalGrantBalance:    'Balance'
+};
+function valLabel(key) { return VALUE_LABELS[key] || key; }
+
+function pvRender(data, req) {
+    if (!data || !req) return;
+    const rowDims    = req.rowDimensions;
+    const values     = data.valueFields || req.valueFields || [];
+    const colHeaders = data.columnHeaders || [];
+    const hasCol     = colHeaders.length > 0;
+    const rows       = data.rows || [];
+    const showSub    = $('#optSub').is(':checked');
+    const showGT     = $('#optGT').is(':checked');
+    const sortVal    = $('#selSort').val();
+
+    // ── Meta ─────────────────────────────────────
+    const leafCount  = rows.filter(r => !r.isSubTotal && !r.isGrandTotal).length;
+    const topLabel   = HIER.dims.length ? HIER.dims[0].label : (rowDims[0] || 'Row');
+    $('#pvMeta').html(
+        `<strong>${PV.totalRows.toLocaleString()}</strong> ${esc(topLabel)} groups &nbsp;·&nbsp; showing <strong>${leafCount}</strong>` +
+        (PV.totalPages > 1 ? ` &nbsp;·&nbsp; Page ${PV.page} / ${PV.totalPages}` : '')
+    );
+
+    // ── Header ───────────────────────────────────
+    let thead = '<tr>';
+    thead += `<th class="th-dim">${esc(topLabel)}</th>`;
+    if (hasCol) {
+        colHeaders.forEach(ch =>
+            values.forEach(v =>
+                thead += `<th class="th-val">${esc(ch)}<br><small style="opacity:.7;font-weight:400">${esc(valLabel(v))}</small></th>`));
+        values.forEach(v =>
+            thead += `<th class="th-val th-total">Total<br><small style="opacity:.7;font-weight:400">${esc(valLabel(v))}</small></th>`);
+    } else {
+        values.forEach(v => thead += `<th class="th-val">${esc(valLabel(v))}</th>`);
+    }
+    thead += '</tr>';
+
+    // ── Sort leaf rows ────────────────────────────
+    let sorted = rows.slice();
+    if (!hasCol && sortVal !== 'name_asc' && values.length > 0) {
+        const primVal = values[0];
+        sorted.sort((a, b) => {
+            if (a.isGrandTotal) return 1; if (b.isGrandTotal) return -1;
+            if (a.isSubTotal || b.isSubTotal) return 0;
+            if (sortVal === 'name_desc') {
+                return (b.dimensionValues?.[0] || '').localeCompare(a.dimensionValues?.[0] || '');
+            }
+            const va = +(a.cells?.[primVal] ?? a.rowTotals?.[primVal] ?? 0);
+            const vb = +(b.cells?.[primVal] ?? b.rowTotals?.[primVal] ?? 0);
+            return sortVal === 'val_desc' ? vb - va : va - vb;
+        });
+    }
+
+    // ── Body ─────────────────────────────────────
+    let tbody = '';
+    sorted.forEach(row => {
+        if (row.isGrandTotal) return;          // handled separately below
+        if (!showSub && row.isSubTotal) return;
+
+        const depth   = row.depth || 0;
+        const dimVals = row.dimensionValues || [];
+        const dimKey  = dimVals.slice(0, depth + 1).join('||');
+
+        // Visibility
+        let hidden = false;
+        for (let d = 0; d < depth; d++) {
+            if (PV.collapsed.has(dimVals.slice(0, d + 1).join('||'))) { hidden = true; break; }
+        }
+
+        const rowCls   = row.isSubTotal ? 'row-subtotal' : 'row-leaf';
+        const depthCls = depth > 0 ? `d${Math.min(depth, 3)}` : '';
+        const vis      = hidden ? 'display:none' : '';
+        const dimKeyA  = attrEsc(dimKey);
+
+        tbody += `<tr class="${rowCls} ${depthCls}" data-key="${dimKeyA}" data-depth="${depth}" style="${vis}">`;
+
+        // Dim cell
+        const label    = dimVals[depth] || '';
+        const hasKids  = !row.isSubTotal && depth < rowDims.length - 1;
+        const kidCount = hasKids ? countKids(rows, dimKey, depth) : 0;
+        let   dimCell  = '';
+        if (hasKids) {
+            const open = !PV.collapsed.has(dimKey);
+            dimCell += `<span class="tri${open ? ' open' : ''}" data-key="${dimKeyA}"></span>`;
+        } else {
+            dimCell += '<span style="display:inline-block;width:15px;margin-right:7px"></span>';
+        }
+        dimCell += `<span class="dim-text">${esc(label)}`;
+        if (row.isSubTotal)  dimCell += ' <em style="font-size:.75rem">(Subtotal)</em>';
+        if (kidCount > 0)    dimCell += ` <span class="child-count">(${kidCount})</span>`;
+        dimCell += '</span>';
+        tbody += `<td class="td-dim">${dimCell}</td>`;
+
+        // Value cells
+        if (hasCol) {
+            colHeaders.forEach(ch =>
+                values.forEach(v =>
+                    tbody += valCell(row.cells?.[`${ch}|${v}`] ?? 0, dimKeyA, v, row.isSubTotal)));
+            values.forEach(v =>
+                tbody += `<td class="td-val" style="font-weight:600">${fmt(row.rowTotals?.[v] ?? 0)}</td>`);
+        } else {
+            values.forEach(v =>
+                tbody += valCell(row.cells?.[v] ?? 0, dimKeyA, v, row.isSubTotal));
+        }
+
+        tbody += '</tr>';
+    });
+
+    // Grand Total row
+    if (showGT && data.grandTotal) {
+        const gt = data.grandTotal;
+        tbody += '<tr class="row-grandtotal"><td class="td-dim"><strong>Grand Total</strong></td>';
+        if (hasCol) {
+            colHeaders.forEach(ch =>
+                values.forEach(v =>
+                    tbody += `<td class="td-val">${fmt(gt.cells?.[`${ch}|${v}`] ?? 0)}</td>`));
+            values.forEach(v =>
+                tbody += `<td class="td-val">${fmt(gt.rowTotals?.[v] ?? 0)}</td>`);
+        } else {
+            values.forEach(v =>
+                tbody += `<td class="td-val">${fmt(gt.rowTotals?.[v] ?? 0)}</td>`);
+        }
+        tbody += '</tr>';
+    }
+
+    // ── Inject ───────────────────────────────────
+    $('#pvThead').html(thead);
+    $('#pvTbody').html(tbody);
+    $('#pvEmpty').hide();
+    $('#pvTable').removeClass('d-none');
+
+    // ── Bind expand/collapse ──────────────────────
+    $('#pvTbody').off('click.tri').on('click.tri', '.tri', function () {
+        const key = $(this).data('key');
+        if (PV.collapsed.has(key)) { PV.collapsed.delete(key); $(this).addClass('open'); }
+        else                       { PV.collapsed.add(key);    $(this).removeClass('open'); }
+        applyCollapse();
+    });
+
+    // ── Bind drill-down ───────────────────────────
+    $('#pvTbody').off('click.drill').on('click.drill', '.drill-cell', function () {
+        const key   = $(this).closest('tr').data('key') || '';
+        const parts = key.split('||');
+        const df    = {};
+        req.rowDimensions.forEach((d, i) => { if (parts[i]) df[d] = parts[i]; });
+        drillOpen(df, Object.values(df).join(' / '));
+    });
+}
+
+function valCell(num, dimKey, field, isSub) {
+    const n   = parseFloat(num) || 0;
+    const cls = isSub ? '' : ' drill-cell';
+    const neg = n < 0 ? ' neg' : '';
+    return `<td class="td-val${cls}${neg}" title="${isSub ? '' : 'Click to drill down'}">${fmt(n)}</td>`;
+}
+
+function countKids(rows, dimKey, depth) {
+    return rows.filter(r =>
+        !r.isSubTotal && !r.isGrandTotal &&
+        r.depth === depth + 1 &&
+        (r.dimensionValues || []).slice(0, depth + 1).join('||') === dimKey
+    ).length;
+}
+
+function applyCollapse() {
+    $('#pvTbody tr').each(function () {
+        const key   = $(this).data('key') || '';
+        const depth = parseInt($(this).data('depth')) || 0;
+        let   hide  = false;
+        for (let d = 0; d < depth; d++) {
+            if (PV.collapsed.has(key.split('||').slice(0, d + 1).join('||'))) { hide = true; break; }
+        }
+        $(this).toggle(!hide);
+    });
+}
+
+// ─── Pager ────────────────────────────────────────
+function pvPager() {
+    if (PV.totalPages > 1) {
+        $('#pvPager').addClass('show');
+        $('#pvPagerInfo').text(`Page ${PV.page} of ${PV.totalPages}  (${PV.totalRows.toLocaleString()} groups)`);
+        $('#btnPrev').prop('disabled', PV.page <= 1);
+        $('#btnNext').prop('disabled', PV.page >= PV.totalPages);
+    } else {
+        $('#pvPager').removeClass('show');
+    }
+}
+
+// ─── Drill-down ───────────────────────────────────
+function drillOpen(df, title) {
+    PV.drillDimF = df; PV.drillPage = 1;
+    $('#drillTitle').text(`Detail: ${title}`);
+    drillLoad();
+    new bootstrap.Modal(document.getElementById('drillModal')).show();
+}
+
+function drillLoad() {
+    const body = {
+        dimensionFilters: PV.drillDimF,
+        valueFields:      PV.lastReq?.valueFields || [],
+        globalFilters:    PV.lastReq?.filters     || {},
+        page:             PV.drillPage,
+        pageSize:         PV.drillSize
+    };
+    $('#drillMeta').text('Loading…');
+    $.ajax({
+        url:         '/Pivot/DrillDown',
+        method:      'POST',
+        contentType: 'application/json',
+        headers:     { 'RequestVerificationToken': PV.tok },
+        data:        JSON.stringify(body),
+        success: function (r) {
+            if (!r.success) { $('#drillMeta').text(r.message || 'Error'); return; }
+            const d = r.data;
+            PV.drillPages = Math.ceil(d.totalRows / PV.drillSize) || 1;
+            $('#drillMeta').text(`${d.totalRows.toLocaleString()} records`);
+            let th = '<tr>'; d.columns.forEach(c => { th += `<th>${esc(c)}</th>`; }); th += '</tr>';
+            $('#drillThead').html(th);
+            let tb = '';
+            d.rows.forEach(row => {
+                tb += '<tr>';
+                d.columns.forEach(c => { tb += `<td>${row.fields[c] != null ? esc(String(row.fields[c])) : ''}</td>`; });
+                tb += '</tr>';
+            });
+            $('#drillTbody').html(tb);
+            $('#drillPager').text(`Page ${PV.drillPage} of ${PV.drillPages}`);
+            $('#btnDrillPrev').prop('disabled', PV.drillPage <= 1);
+            $('#btnDrillNext').prop('disabled', PV.drillPage >= PV.drillPages);
+        },
+        error: () => $('#drillMeta').text('Failed to load detail.')
+    });
+}
+
+function drillExportCsv() {
+    const rows = [], hdr = [];
+    $('#drillThead th').each(function () { hdr.push($(this).text()); });
+    rows.push(hdr.join(','));
+    $('#drillTbody tr').each(function () {
+        const c = [];
+        $(this).find('td').each(function () { c.push('"' + $(this).text().replace(/"/g, '""') + '"'); });
+        rows.push(c.join(','));
+    });
+    dlBlob(new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv' }), 'DrillDown.csv');
+}
+
+// ─── Export ───────────────────────────────────────
+function pvExport(url) {
+    if (!PV.lastReq) { showToast('warning', 'Run the report first.'); return; }
+    const req = Object.assign({}, PV.lastReq, { pageSize: 100000, page: 1 });
+    showToast('info', 'Preparing export… this may take a moment.');
+    $.ajax({
+        url, method: 'POST', contentType: 'application/json',
+        headers: { 'RequestVerificationToken': PV.tok },
+        data: JSON.stringify(req),
+        xhrFields: { responseType: 'blob' },
+        success: function (blob, s, xhr) {
+            // If the server returned JSON error instead of a file, parse and show it
+            const ct = xhr.getResponseHeader('Content-Type') || '';
+            if (ct.includes('application/json')) {
+                const reader = new FileReader();
+                reader.onload = function () {
+                    try { const obj = JSON.parse(reader.result); showToast('error', obj.message || 'Export failed.'); }
+                    catch { showToast('error', 'Export failed.'); }
+                };
+                reader.readAsText(blob);
+                return;
+            }
+            const cd = xhr.getResponseHeader('Content-Disposition') || '';
+            const fn = (cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/) || ['', 'Report'])[1]
+                         .replace(/['"]/g, '') || (url.includes('Csv') ? 'Report.csv' : 'Report.xlsx');
+            dlBlob(blob, fn);
+        },
+        error: function (xhr) {
+            let msg = 'Export failed.';
+            try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch {}
+            showToast('error', msg);
+        }
+    });
+}
+
+// ─── Print ────────────────────────────────────────
+function pvPrint() {
+    const t = document.getElementById('pvTable');
+    if (!t || t.classList.contains('d-none')) { showToast('warning', 'Run the report first.'); return; }
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><title>Pivot Report</title>
+    <style>
+        body{font-family:Arial,sans-serif;font-size:8.5pt;margin:10px}
+        table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #bbb;padding:4px 8px}
+        th{background:#1a3a5c;color:#fff;text-align:left}
+        td:not(:first-child){text-align:right}
+        .row-subtotal td{background:#e8eef8;font-style:italic}
+        .row-grandtotal td{background:#1a3a5c;color:#fff;font-weight:bold}
+        .neg{color:red}
+    </style></head><body>`);
+    w.document.write(t.outerHTML);
+    w.document.write('</body></html>');
+    w.document.close(); w.print();
+}
+
+// ─── Helpers ─────────────────────────────────────
+function fmt(v) {
+    const n = parseFloat(v);
+    if (isNaN(n)) return '';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function esc(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function attrEsc(s) {
+    return String(s ?? '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function dlBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name; a.click();
+}
+
+// ════════════════════════════════════════════════════
+//  MULTI-SELECT DROPDOWN ENGINE
+// ════════════════════════════════════════════════════
+const MS = {
+    loaded: new Set(),   // columns that have been fetched
+    open:   null         // currently open .ms-dd element
+};
+
+function msInit() {
+    // Open/close on trigger click
+    $(document).on('click', '.ms-trigger', function (e) {
+        e.stopPropagation();
+        const $dd = $(this).closest('.ms-dd');
+        if (MS.open && MS.open !== $dd[0]) msClose();
+        $dd.find('.ms-panel').toggleClass('open');
+        $(this).toggleClass('open');
+        MS.open = $dd.find('.ms-panel').hasClass('open') ? $dd[0] : null;
+        if (MS.open) msEnsureLoaded($dd[0]);
+    });
+
+    // Close on outside click
+    $(document).on('click', function (e) {
+        if (MS.open && !$(e.target).closest('.ms-dd').length) msClose();
+    });
+
+    // Live search — debounced server-side query
+    $(document).on('input', '.ms-search', function () {
+        const $input = $(this);
+        const $dd    = $input.closest('.ms-dd');
+        clearTimeout($dd.data('searchTimer'));
+        $dd.data('searchTimer', setTimeout(() => msServerSearch($dd[0], $input.val().trim()), 280));
+    });
+
+    // Stop panel clicks closing dropdown
+    $(document).on('click', '.ms-panel', function (e) { e.stopPropagation(); });
+
+    // Checkbox change → update badge/label
+    $(document).on('change', '.ms-item input', function () {
+        msUpdateBadge($(this).closest('.ms-dd')[0]);
+    });
+
+    // Select all / Clear links in footer
+    $(document).on('click', '.ms-sel-all', function (e) {
+        e.preventDefault();
+        $(this).closest('.ms-dd').find('.ms-item input').prop('checked', true);
+        msUpdateBadge($(this).closest('.ms-dd')[0]);
+    });
+    $(document).on('click', '.ms-clr', function (e) {
+        e.preventDefault();
+        const $dd = $(this).closest('.ms-dd');
+        $dd.find('.ms-item input').prop('checked', false);
+        msUpdateBadge($dd[0]);
+    });
+}
+
+function msClose() {
+    if (!MS.open) return;
+    const $dd = $(MS.open);
+    $dd.find('.ms-panel').removeClass('open');
+    $dd.find('.ms-trigger').removeClass('open');
+    MS.open = null;
+}
+
+function msEnsureLoaded(ddEl) {
+    const col = $(ddEl).data('col');
+    if (MS.loaded.has(col)) return;
+    MS.loaded.add(col);
+    msLoadItems(ddEl, '');
+}
+
+function msLoadItems(ddEl, search) {
+    const col    = $(ddEl).data('col');
+    const $list  = $(ddEl).find('.ms-list');
+
+    // Remember currently checked values so we can restore them after re-render
+    const checked = new Set();
+    $list.find('.ms-item input:checked').each(function () { checked.add($(this).val()); });
+
+    $list.html('<div class="ms-loading">Loading…</div>');
+
+    $.get('/Pivot/GetFilterLookup', { column: col, search }, function (r) {
+        if (!r.success) { $list.html('<div class="ms-empty">Failed to load</div>'); return; }
+        const items = r.data || [];
+        if (!items.length) { $list.html('<div class="ms-empty">No items found</div>'); return; }
+        let html = '';
+        items.forEach(item => {
+            const v       = esc(item.value);
+            const t       = esc(item.text);
+            const chk     = checked.has(item.value) ? ' checked' : '';
+            html += `<label class="ms-item"><input type="checkbox" value="${v}"${chk}><span title="${t}">${t}</span></label>`;
+        });
+        $list.html(html);
+        msUpdateBadge(ddEl);
+    }).fail(() => { $list.html('<div class="ms-empty">Failed to load</div>'); MS.loaded.delete(col); });
+}
+
+function msServerSearch(ddEl, q) {
+    // Empty search → reload full list (uses 5000-row cap from server)
+    msLoadItems(ddEl, q);
+}
+
+function msGetSelected(ddEl) {
+    const vals = [];
+    $(ddEl).find('.ms-item input:checked').each(function () { vals.push($(this).val()); });
+    return vals;
+}
+
+function msUpdateBadge(ddEl) {
+    const count = $(ddEl).find('.ms-item input:checked').length;
+    const $b    = $(ddEl).find('.ms-badge');
+    const $lbl  = $(ddEl).find('.ms-label');
+    if (count > 0) {
+        $b.text(count).removeClass('hidden');
+        $lbl.text(count === 1 ? $(ddEl).find('.ms-item input:checked').next('span').text() : `${count} selected`);
+    } else {
+        $b.addClass('hidden');
+        $lbl.text('All');
+    }
+}
+
+function msClearAll() {
+    $('.ms-dd').each(function () {
+        $(this).find('.ms-item input').prop('checked', false);
+        msUpdateBadge(this);
+    });
+}
+</script>
+}

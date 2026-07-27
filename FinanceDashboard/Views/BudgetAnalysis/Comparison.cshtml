@@ -1,0 +1,182 @@
+@{
+    ViewData["Title"] = "Budget Comparison";
+}
+
+<div class="fade-in">
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-arrow-left-right me-2"></i>Budget Comparison</h2>
+            <p class="text-muted mb-0">Compare Original Budget vs Final Grant vs Actual Expenditure</p>
+        </div>
+        <div class="page-actions">
+            <select id="filterYear" class="form-select form-select-sm" style="width: 150px;">
+                <option value="">All Years</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="loadData()">
+                <i class="bi bi-search"></i>
+            </button>
+            <button class="btn btn-outline-success btn-sm" onclick="exportTableToCSV('comparisonTable', 'Budget_Comparison.csv')">
+                <i class="bi bi-file-earmark-excel me-1"></i>CSV
+            </button>
+        </div>
+    </div>
+
+    <!-- Comparison Chart -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-bar-chart-line me-2"></i>Budget vs Expenditure Comparison</h6>
+        </div>
+        <div class="card-body">
+            <div class="chart-container">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comparison Table -->
+    <div class="table-container">
+        <table id="comparisonTable" class="table table-striped table-hover" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Financial Year</th>
+                    <th>Department</th>
+                    <th>Fund Code</th>
+                    <th>Original Budget</th>
+                    <th>Final Grant</th>
+                    <th>Actual Expenditure</th>
+                    <th>Balance</th>
+                    <th>Expenditure %</th>
+                </tr>
+            </thead>
+            <tbody id="comparisonTableBody">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        let comparisonChart = null;
+
+        $(document).ready(function () {
+            // Load financial years
+            ajaxGet('/Dashboard/GetFinancialYears', {}, function (r) {
+                if (r.success) {
+                    const sel = $('#filterYear');
+                    r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+                }
+            });
+
+            loadData();
+        });
+
+        function loadData() {
+            const year = $('#filterYear').val() || null;
+            ajaxGet('/BudgetAnalysis/GetComparisonData', { financialYear: year }, function (r) {
+                if (r.success) {
+                    renderTable(r.data);
+                    renderChart(r.data);
+                }
+            });
+        }
+
+        function renderTable(data) {
+            const tbody = $('#comparisonTableBody');
+            tbody.empty();
+
+            data.forEach(function (row) {
+                const pct = parseFloat(row.expenditurePercentage).toFixed(2);
+                const pctClass = pct >= 90 ? 'text-danger fw-bold' : pct >= 70 ? 'text-warning fw-bold' : 'text-success';
+
+                tbody.append('<tr>' +
+                    '<td>' + row.financialYear + '</td>' +
+                    '<td>' + (row.departmentCode || '-') + '</td>' +
+                    '<td>' + (row.fundCode || '-') + '</td>' +
+                    '<td class="text-end">' + formatCurrency(row.originalBudget) + '</td>' +
+                    '<td class="text-end">' + formatCurrency(row.finalGrant) + '</td>' +
+                    '<td class="text-end">' + formatCurrency(row.actualExpenditure) + '</td>' +
+                    '<td class="text-end">' + formatCurrency(row.balance) + '</td>' +
+                    '<td class="' + pctClass + '">' + pct + '%</td>' +
+                    '</tr>');
+            });
+
+            // Initialize DataTable if not already initialized
+            if ($.fn.DataTable.isDataTable('#comparisonTable')) {
+                $('#comparisonTable').DataTable().destroy();
+            }
+            $('#comparisonTable').DataTable({
+                pageLength: 50,
+                order: [[3, 'desc']]
+            });
+        }
+
+        function renderChart(data) {
+            const ctx = document.getElementById('comparisonChart');
+            if (!ctx) return;
+
+            destroyChart(comparisonChart);
+
+            // Take top 15 items for chart
+            const chartData = data.slice(0, 15);
+            const labels = chartData.map(d => d.fundCode || d.departmentCode);
+            const originalBudget = chartData.map(d => d.originalBudget);
+            const finalGrant = chartData.map(d => d.finalGrant);
+            const actualExpenditure = chartData.map(d => d.actualExpenditure);
+
+            comparisonChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Original Budget',
+                            data: originalBudget,
+                            backgroundColor: chartColors.primary + '80',
+                            borderColor: chartColors.primary,
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Final Grant',
+                            data: finalGrant,
+                            backgroundColor: chartColors.success + '80',
+                            borderColor: chartColors.success,
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Actual Expenditure',
+                            data: actualExpenditure,
+                            backgroundColor: chartColors.danger + '80',
+                            borderColor: chartColors.danger,
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    return context.dataset.label + ': ' + formatCurrency(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function (value) {
+                                    return formatCurrency(value).replace('PKR', '');
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+}

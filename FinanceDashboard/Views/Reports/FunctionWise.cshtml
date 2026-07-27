@@ -1,0 +1,98 @@
+@{
+    ViewData["Title"] = "Function Wise Report";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-grid-3x3-gap me-2"></i>Function Wise Report</h2>
+            <p class="text-muted mb-0">Budget analysis grouped by Function Code</p>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-outline-success btn-sm" onclick="exportExcel()"><i class="bi bi-file-earmark-excel me-1"></i>Excel</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="exportPdf()"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Financial Year</label>
+                <select id="filterYear" class="form-select form-select-sm select2"><option value="">All Years</option></select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="loadData()"><i class="bi bi-search"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()"><i class="bi bi-x-circle"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Function Budget Distribution</h6></div>
+        <div class="card-body"><div class="chart-container-sm"><canvas id="funcChart"></canvas></div></div>
+    </div>
+
+    <div class="table-container">
+        <table id="funcTable" class="table table-striped table-hover" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Function Code</th><th>Records</th><th>Original Budget</th>
+                    <th>Revised Budget</th><th>Departments</th><th>Funds</th>
+                </tr>
+            </thead>
+            <tbody id="funcTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        let funcChart = null;
+        $(document).ready(function () {
+            ajaxGet('/Dashboard/GetFinancialYears', {}, function (r) {
+                if (r.success) { const sel = $('#filterYear'); r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>')); }
+            });
+            loadData();
+        });
+        function loadData() {
+            const year = $('#filterYear').val() || null;
+            ajaxGet('/Reports/GetFunctionWiseData', { financialYear: year }, function (r) {
+                if (r.success) { renderTable(r.data); renderChart(r.data); }
+            });
+        }
+        function renderTable(data) {
+            const tbody = $('#funcTableBody'); tbody.empty();
+            data.forEach(function (row) {
+                tbody.append('<tr>' +
+                    '<td><span class="fw-semibold">' + (row.functionCode || '-') + '</span></td>' +
+                    '<td class="text-center">' + formatNumber(row.totalRecords) + '</td>' +
+                    '<td class="text-end fw-bold">' + formatCurrency(row.totalOriginalBudget) + '</td>' +
+                    '<td class="text-end">' + formatCurrency(row.totalRevisedBudget) + '</td>' +
+                    '<td class="text-center">' + formatNumber(row.departmentCount) + '</td>' +
+                    '<td class="text-center">' + formatNumber(row.fundCount) + '</td>' +
+                    '</tr>');
+            });
+            if ($.fn.DataTable.isDataTable('#funcTable')) $('#funcTable').DataTable().destroy();
+            $('#funcTable').DataTable({ pageLength: 50, order: [[2, 'desc']] });
+        }
+        function renderChart(data) {
+            const ctx = document.getElementById('funcChart'); if (!ctx) return;
+            destroyChart(funcChart);
+            const topData = data.slice(0, 10);
+            funcChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: topData.map(d => d.functionCode || 'N/A'),
+                    datasets: [
+                        { label: 'Original Budget', data: topData.map(d => d.totalOriginalBudget), backgroundColor: chartColors.primary + '80', borderColor: chartColors.primary, borderWidth: 1 },
+                        { label: 'Revised Budget', data: topData.map(d => d.totalRevisedBudget), backgroundColor: chartColors.info + '80', borderColor: chartColors.info, borderWidth: 1 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, ticks: { callback: function (v) { return formatCurrency(v).replace('PKR', ''); } } } } }
+            });
+        }
+        function clearFilters() { $('#filterYear').val('').trigger('change'); loadData(); }
+        function exportExcel() { exportToExcel('/Reports/ExportExcel?reportType=function', { financialYear: $('#filterYear').val() || null }); }
+        function exportPdf() { exportToPdf('/Reports/ExportPdf?reportType=function', { financialYear: $('#filterYear').val() || null }); }
+    </script>
+}

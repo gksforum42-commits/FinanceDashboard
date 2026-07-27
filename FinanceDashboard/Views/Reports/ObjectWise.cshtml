@@ -1,0 +1,487 @@
+@{
+    ViewData["Title"] = "Object Wise Report";
+}
+
+<div class="fade-in" id="reportWrapper">
+
+    <!-- Page Header -->
+    <div class="page-header no-print">
+        <div>
+            <h2 class="page-title"><i class="bi bi-box-seam me-2"></i>Object Wise Report</h2>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-outline-success btn-sm" onclick="exportExcel()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </button>
+            <button class="btn btn-outline-danger btn-sm" onclick="exportPdfReport()">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+                <i class="bi bi-printer me-1"></i>Print
+            </button>
+        </div>
+    </div>
+
+    <!-- Print Header -->
+    <div class="print-only mb-3">
+        <h4 class="mb-0">Object Wise Budget Report</h4>
+        <small id="printSubtitle" class="text-muted"></small>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar no-print">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Financial Year</label>
+                <select id="filterYear" class="form-select form-select-sm">
+                    <option value="">All Years</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Sector</label>
+                <select id="filterSector" class="form-select form-select-sm select2" style="min-width:160px;">
+                    <option value="">All Sectors</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Department</label>
+                <select id="filterDept" class="form-select form-select-sm select2" style="min-width:200px;">
+                    <option value="">All Departments</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Fund</label>
+                <select id="filterFund" class="form-select form-select-sm select2" style="min-width:220px;">
+                    <option value="">All Funds</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Cost Center</label>
+                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:240px;">
+                    <option value="">All Cost Centers</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="loadData()">
+                    <i class="bi bi-search me-1"></i>Search
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Totals Bar -->
+    <div class="totals-banner mb-3 no-print" id="summaryBar" style="display:none!important;">
+        <div class="totals-item"><i class="bi bi-cash-stack text-primary me-1"></i><span class="text-muted me-1">Alloc Budget:</span><strong id="sumAllocated">—</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-clipboard-check text-info me-1"></i><span class="text-muted me-1">Budget Grant:</span><strong id="sumBudgetGrant">—</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-arrow-down-circle text-success me-1"></i><span class="text-muted me-1">Releases:</span><strong id="sumReleases">—</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-receipt text-danger me-1"></i><span class="text-muted me-1">Expenditure:</span><strong id="sumExpenditure">—</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-piggy-bank text-success me-1"></i><span class="text-muted me-1">Balance:</span><strong id="sumBalance">—</strong></div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-container" style="overflow-x:auto;">
+        <div id="tableLoadingOverlay">
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="mt-2 text-primary fw-semibold">Loading data...</div>
+            </div>
+        </div>
+        <table id="objTable" class="table table-bordered table-sm table-hover print-table nowrap" style="width:100%">
+            <thead class="table-dark">
+                <tr>
+                    <th>GL Code</th>
+                    <th>GL Description</th>
+                    <th class="text-end">Alloc Budget</th>
+                    <th class="text-end">Budget Grant</th>
+                    <th class="text-end">Releases</th>
+                    <th class="text-end">% Release</th>
+                    <th class="text-end">Expenditure</th>
+                    <th class="text-end">% Util</th>
+                    <th class="text-end">Balance</th>
+                </tr>
+            </thead>
+            <tbody id="objTableBody"></tbody>
+            <tfoot id="objTableFoot"></tfoot>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+    @@media print {
+        .no-print, .page-header, .filter-bar, .sidebar, nav, header, footer { display: none !important; }
+        .print-only { display: block !important; }
+        body, .main-content, .content-wrapper { margin: 0; padding: 0; }
+        .table-container { overflow: visible !important; }
+        #objTable { font-size: 9pt; width: 100% !important; }
+        #objTable thead { background: #343a40 !important; color: #fff !important; -webkit-print-color-adjust: exact; }
+        #objTable tfoot td { font-weight: bold; background: #f8f9fa; -webkit-print-color-adjust: exact; }
+        .dataTables_paginate, .dataTables_filter, .dataTables_info, .dataTables_length { display: none !important; }
+        table.dataTable tbody tr { display: table-row !important; }
+    }
+    .print-only  { display: none; }
+    .pct-danger  { color: #dc3545; font-weight: 600; }
+    .pct-warning { color: #fd7e14; font-weight: 600; }
+    .pct-ok      { color: #198754; font-weight: 600; }
+    tfoot td     { font-weight: 700; background: #f8f9fa; }
+    #tableLoadingOverlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(255,255,255,0.75);
+        z-index: 10;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+    }
+    #tableLoadingOverlay.active { display: flex; }
+    .table-container { position: relative; }
+</style>
+<script>
+    let objDT = null;
+
+    function showTableLoading() { $('#tableLoadingOverlay').addClass('active'); }
+    function hideTableLoading()  { $('#tableLoadingOverlay').removeClass('active'); }
+
+    $(document).ready(function () {
+        ajaxGet('/Dashboard/GetFinancialYears', {}, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterYear');
+            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+        });
+
+        $('#filterSector').select2({ theme: 'bootstrap-5', placeholder: 'All Sectors',     allowClear: true, width: '100%' });
+        $('#filterDept').select2(  { theme: 'bootstrap-5', placeholder: 'All Departments', allowClear: true, width: '100%' });
+        $('#filterFund').select2(  { theme: 'bootstrap-5', placeholder: 'All Funds',        allowClear: true, width: '100%' });
+        $('#filterCC').select2(    { theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
+
+        loadSectorDropdown(null);
+        loadDeptDropdown(null, null);
+        loadFundDropdown(null, null, null);
+        loadCCDropdown(null, null);
+
+        $('#filterYear').on('change', function () {
+            const yr = $(this).val() || null;
+            loadSectorDropdown(yr);
+            loadDeptDropdown(yr, null);
+            loadFundDropdown(yr, null, null);
+            loadCCDropdown(yr, null);
+            loadData();
+        });
+        $('#filterSector').on('change', function () {
+            const yr = $('#filterYear').val() || null;
+            const s  = $(this).val() || null;
+            $('#filterDept').val('').trigger('change.select2');
+            $('#filterFund').val('').trigger('change.select2');
+            $('#filterCC').val('').trigger('change.select2');
+            loadDeptDropdown(yr, s);
+            loadFundDropdown(yr, null, s);
+            loadCCDropdown(yr, null);
+        });
+        $('#filterDept').on('change', function () {
+            const yr = $('#filterYear').val() || null;
+            const s  = $('#filterSector').val() || null;
+            const d  = $(this).val() || null;
+            $('#filterFund').val('').trigger('change.select2');
+            $('#filterCC').val('').trigger('change.select2');
+            loadFundDropdown(yr, d, s);
+            loadCCDropdown(yr, null);
+            loadData();
+        });
+        $('#filterFund').on('change', function () {
+            const yr = $('#filterYear').val() || null;
+            const fc = $(this).val() || null;
+            $('#filterCC').val('').trigger('change.select2');
+            loadCCDropdown(yr, fc);
+            loadData();
+        });
+        $('#filterCC').on('change', function () { loadData(); });
+
+        loadData();
+    });
+
+    function loadSectorDropdown(year) {
+        const params = year ? { financialYear: year } : {};
+        ajaxGet('/Dashboard/GetSectorLookup', params, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterSector');
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            sel.empty().append('<option value="">All Sectors</option>');
+            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Sectors', allowClear: true, width: '100%' });
+        });
+    }
+
+    function loadDeptDropdown(year, sector) {
+        const params = {};
+        if (year)   params.financialYear = year;
+        if (sector) params.sector = sector;
+        ajaxGet('/Dashboard/GetDepartmentLookup', params, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterDept');
+            const cur = sel.val();
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            sel.empty().append('<option value="">All Departments</option>');
+            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Departments', allowClear: true, width: '100%' });
+            if (cur) sel.val(cur).trigger('change.select2');
+        });
+    }
+
+    function loadFundDropdown(year, departmentCode, sector) {
+        const params = {};
+        if (year)           params.financialYear = year;
+        if (sector)         params.sector = sector;
+        if (departmentCode) params.departmentCode = departmentCode;
+        ajaxGet('/Dashboard/GetFundLookup', params, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterFund');
+            const cur = sel.val();
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            sel.empty().append('<option value="">All Funds</option>');
+            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Funds', allowClear: true, width: '100%' });
+            if (cur) sel.val(cur).trigger('change.select2');
+        });
+    }
+
+    function loadCCDropdown(year, fundCode) {
+        const params = {};
+        if (year)     params.financialYear = year;
+        if (fundCode) params.fundCode      = fundCode;
+        ajaxGet('/Dashboard/GetCostCenterLookup', params, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterCC');
+            const cur = sel.val();
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            sel.empty().append('<option value="">All Cost Centers</option>');
+            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
+            if (cur) sel.val(cur).trigger('change.select2');
+        });
+    }
+
+    function loadData() {
+        const year   = $('#filterYear').val()   || null;
+        const sector = $('#filterSector').val() || null;
+        const dept   = $('#filterDept').val()   || null;
+        const fund   = $('#filterFund').val()   || null;
+        const cc     = $('#filterCC').val()     || null;
+        showTableLoading();
+        ajaxGet('/Reports/GetObjectWiseData',
+            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc },
+            function (r) {
+                hideTableLoading();
+                if (r.success) {
+                    renderTable(r.data);
+                    updateSummary(r.data);
+                    updatePrintSubtitle(year, sector, dept, fund, cc);
+                } else {
+                    showToast('error', r.message || 'Failed to load data.');
+                }
+            },
+            function () {
+                hideTableLoading();
+                showToast('error', 'Failed to load data.');
+            });
+    }
+
+    function renderTable(data) {
+        if (objDT) { objDT.destroy(); objDT = null; }
+
+        const tbody = $('#objTableBody');
+        const tfoot = $('#objTableFoot');
+        tbody.empty();
+        tfoot.empty();
+
+        let totAllocated = 0, totGrant = 0, totReleases = 0, totExp = 0, totBalance = 0;
+        window._objPdfRows = [];
+
+        data.forEach(function (row) {
+            const relPct  = parseFloat(row.releasePercentage).toFixed(1);
+            const utilPct = parseFloat(row.utilizationPercentage).toFixed(1);
+            const relCls  = utilClass(relPct);
+            const utilCls = utilClass(utilPct);
+
+            totAllocated += row.totalAllocatedBudget;
+            totGrant     += row.totalBudgetGrant;
+            totReleases  += row.totalReleases;
+            totExp       += row.totalActualExpenditure;
+            totBalance   += row.totalBalance;
+
+            window._objPdfRows.push([
+                row.detailObject,
+                row.objectDescription || '—',
+                fmtC(row.totalAllocatedBudget), fmtC(row.totalBudgetGrant),
+                fmtC(row.totalReleases), relPct + '%',
+                fmtC(row.totalActualExpenditure), utilPct + '%',
+                fmtC(row.totalBalance)
+            ]);
+
+            const objCode = esc(row.detailObject);
+            const objDesc = row.objectDescription ? esc(row.objectDescription) : '';
+            tbody.append(
+                '<tr>' +
+                '<td><code class="fw-semibold">' + objCode + '</code></td>' +
+                '<td>' + (objDesc ? objDesc : '<span class="text-muted">—</span>') + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalAllocatedBudget)     + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalBudgetGrant)         + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReleases)            + '</td>' +
+                '<td class="text-end ' + relCls  + '">' + relPct  + '%</td>' +
+                '<td class="text-end text-primary">' + fmtC(row.totalActualExpenditure) + '</td>' +
+                '<td class="text-end ' + utilCls + '">' + utilPct + '%</td>' +
+                '<td class="text-end">' + fmtC(row.totalBalance)             + '</td>' +
+                '</tr>'
+            );
+        });
+
+        const totalRelPct  = totAllocated > 0 ? (totReleases / totAllocated * 100).toFixed(1) : '0.0';
+        const totalUtilPct = totGrant     > 0 ? (totExp      / totGrant     * 100).toFixed(1) : '0.0';
+
+        window._objPdfRows.push(['Total', '', fmtC(totAllocated), fmtC(totGrant), fmtC(totReleases),
+            totalRelPct + '%', fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)]);
+
+        tfoot.append(
+            '<tr class="table-secondary">' +
+            '<td colspan="2"><strong>Total</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totAllocated) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totGrant)     + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReleases)  + '</strong></td>' +
+            '<td class="text-end ' + utilClass(totalRelPct)  + '"><strong>' + totalRelPct  + '%</strong></td>' +
+            '<td class="text-end text-primary"><strong>' + fmtC(totExp)    + '</strong></td>' +
+            '<td class="text-end ' + utilClass(totalUtilPct) + '"><strong>' + totalUtilPct + '%</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totBalance)   + '</strong></td>' +
+            '</tr>'
+        );
+
+        objDT = $('#objTable').DataTable({
+            pageLength: 10,
+            order: [[2, 'desc']],
+            scrollX: true,
+            dom: '<"d-flex justify-content-between align-items-center mb-2"lf>rtip',
+            language: { emptyTable: 'No data found', zeroRecords: 'No matching records' }
+        });
+    }
+
+    function updateSummary(data) {
+        if (!data.length) { $('#summaryBar').hide(); return; }
+        const a = data.reduce((s, r) => ({
+            al: s.al + r.totalAllocatedBudget,
+            bg: s.bg + r.totalBudgetGrant,
+            rl: s.rl + r.totalReleases,
+            ex: s.ex + r.totalActualExpenditure,
+            bl: s.bl + r.totalBalance
+        }), { al: 0, bg: 0, rl: 0, ex: 0, bl: 0 });
+        $('#sumAllocated').text(fmtC(a.al));
+        $('#sumBudgetGrant').text(fmtC(a.bg));
+        $('#sumReleases').text(fmtC(a.rl));
+        $('#sumExpenditure').text(fmtC(a.ex));
+        $('#sumBalance').text(fmtC(a.bl));
+        $('#summaryBar').css('display', '');
+    }
+
+    function updatePrintSubtitle(year, sector, dept, fund, cc) {
+        const parts = [];
+        if (year)   parts.push('Year: ' + year);
+        if (sector) parts.push('Sector: ' + sector);
+        if (dept)   parts.push('Dept: ' + dept);
+        if (fund)   parts.push('Fund: ' + fund);
+        if (cc)     parts.push('Cost Center: ' + cc);
+        $('#printSubtitle').text(parts.length ? parts.join(' | ') : 'All Years — All');
+    }
+
+    function exportPdfReport() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        const year = $('#filterYear').val() || 'All Years';
+        const dept = $('#filterDept').val() || 'All Departments';
+        const fund = $('#filterFund').val() || 'All Funds';
+        const cc   = $('#filterCC').val()   || 'All Cost Centers';
+        const now  = new Date().toLocaleDateString('en-PK');
+
+        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+        doc.text('Object Wise Budget Report', 40, 40);
+        doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+        doc.text('Year: ' + year + '   |   Department: ' + dept + '   |   Fund: ' + fund + '   |   Cost Center: ' + cc, 40, 56);
+        doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 56, { align: 'right' });
+
+        doc.autoTable({
+            head: [['GL Code', 'GL Description', 'Alloc Budget', 'Budget Grant',
+                    'Releases', '% Release', 'Expenditure', '% Util', 'Balance']],
+            body: window._objPdfRows || [],
+            startY: 70,
+            styles: { fontSize: 7, cellPadding: 3 },
+            headStyles: { fillColor: [30, 50, 80], textColor: 255, fontStyle: 'bold' },
+            columnStyles: {
+                0: { cellWidth: 70 },
+                1: { cellWidth: 120 },
+                2: { halign: 'right' }, 3: { halign: 'right' },
+                4: { halign: 'right' }, 5: { halign: 'right' },
+                6: { halign: 'right' }, 7: { halign: 'right' },
+                8: { halign: 'right' }
+            },
+            didParseCell: function (data) {
+                if (window._objPdfRows && data.row.index === window._objPdfRows.length - 1) {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [240, 240, 240];
+                }
+            },
+            didDrawPage: function () {
+                const pc = doc.internal.getNumberOfPages();
+                doc.setFontSize(7);
+                doc.text('Page ' + doc.internal.getCurrentPageInfo().pageNumber + ' of ' + pc,
+                    doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+            }
+        });
+
+        doc.save('ObjectWise_' + year.replace(/\s/g, '') + '_' + now.replace(/\//g, '-') + '.pdf');
+    }
+
+    function clearFilters() {
+        $('#filterYear').val('');
+        if ($('#filterSector').hasClass('select2-hidden-accessible')) $('#filterSector').val('').trigger('change.select2');
+        if ($('#filterDept').hasClass('select2-hidden-accessible'))   $('#filterDept').val('').trigger('change.select2');
+        if ($('#filterFund').hasClass('select2-hidden-accessible'))   $('#filterFund').val('').trigger('change.select2');
+        if ($('#filterCC').hasClass('select2-hidden-accessible'))     $('#filterCC').val('').trigger('change.select2');
+        loadSectorDropdown(null);
+        loadDeptDropdown(null, null);
+        loadFundDropdown(null, null, null);
+        loadCCDropdown(null, null);
+        loadData();
+    }
+    function exportExcel() {
+        const year   = $('#filterYear').val()   || null;
+        const sector = $('#filterSector').val() || null;
+        const dept   = $('#filterDept').val()   || null;
+        const fund   = $('#filterFund').val()   || null;
+        const cc     = $('#filterCC').val()     || null;
+        exportToExcel('/Reports/ExportExcel?reportType=object', { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc });
+    }
+
+    function utilClass(pct) {
+        const v = parseFloat(pct);
+        if (v >= 90) return 'pct-danger';
+        if (v >= 70) return 'pct-warning';
+        return 'pct-ok';
+    }
+    function fmtC(v) {
+        const n = Math.round(parseFloat(v) || 0);
+        return n.toLocaleString('en-PK');
+    }
+    function esc(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+</script>
+}

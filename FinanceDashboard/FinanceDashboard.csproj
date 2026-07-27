@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FinanceDashboard</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="SQL\**" />
+    <Content Remove="SQL\**" />
+    <EmbeddedResource Remove="SQL\**" />
+    <None Remove="SQL\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Entity Framework Core -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0" />
+    
+    <!-- ASP.NET Identity -->
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.0" />
+    
+    <!-- Excel Processing -->
+    <PackageReference Include="EPPlus" Version="7.0.0" />
+    
+    <!-- PDF Generation -->
+    <PackageReference Include="QuestPDF" Version="2023.12.0" />
+    
+    <!-- Caching -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    
+
+    <!-- Dapper for stored procedure execution -->
+    <PackageReference Include="Dapper" Version="2.1.28" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\uploads\" />
+    <Folder Include="wwwroot\reports\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- web.config transform applied only during Release publish -->
+    <None Update="web.Release.config">
+      <DependentUpon>web.config</DependentUpon>
+    </None>
+  </ItemGroup>
+
+</Project>

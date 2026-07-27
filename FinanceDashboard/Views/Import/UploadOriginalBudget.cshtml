@@ -1,0 +1,238 @@
+﻿@{
+    ViewData["Title"] = "Upload Original Budget";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-upload me-2"></i>Upload Original Budget</h2>
+            <p class="text-muted mb-0">Upload Excel file containing Original Budget data</p>
+        </div>
+        <div>
+            <a href="/Import/DownloadOriginalBudgetSample" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Sample Format
+            </a>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>File Upload</h6>
+                </div>
+                <div class="card-body p-4">
+                    <div class="alert alert-info py-2 mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The Excel file must contain a sheet named <strong>Original_budget</strong>. Column 1 = Financial Year, Column 2 = Document Number (21 columns total).
+                        <a href="/Import/DownloadOriginalBudgetSample" class="alert-link ms-1">Download sample</a> to see the exact format.
+                    </div>
+
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-3">
+                            <label class="form-label">Financial Year</label>
+                            <select id="financialYear" class="form-select" required>
+                                @for (int y = DateTime.Now.Year + 1; y >= 2020; y--)
+                                {
+                                    <option value="@y" selected="@(y == DateTime.Now.Year ? "selected" : null)">@y</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Import Type</label>
+                            <select id="importType" class="form-select">
+                                <option value="OriginalBudget">Original Budget Only</option>
+                                <option value="Both" selected>Both Sheets (Original + BER)</option>
+                            </select>
+                        </div>
+
+                        <div class="upload-zone mb-3" id="obDropZone">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <h5>Drag and Drop your Excel file here</h5>
+                            <p class="mb-2">or</p>
+                            <button type="button" class="btn btn-outline-primary btn-sm mb-2" onclick="document.getElementById('obFile').click()">
+                                <i class="bi bi-folder2-open me-1"></i>Browse Files
+                            </button>
+                            <br /><small class="text-muted">Supported: .xlsx, .xls (Max 50MB)</small>
+                        </div>
+                        <input type="file" id="obFile" name="ExcelFile" accept=".xlsx,.xls" style="display:none" />
+
+                        <div id="fileInfo" class="alert alert-success d-none">
+                            <i class="bi bi-file-earmark-excel me-2"></i>
+                            <strong id="fileName"></strong>&nbsp;(<span id="fileSize"></span>)
+                        </div>
+
+                        <div class="d-grid gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-secondary" id="previewBtn" onclick="obPreviewFile()" disabled>
+                                <i class="bi bi-eye me-2"></i>Preview Data
+                            </button>
+                            <button type="button" class="btn btn-primary" id="importBtn" onclick="obImportFile()" disabled>
+                                <i class="bi bi-upload me-2"></i>Import Data
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="previewSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-table me-2"></i>Data Preview</h6>
+                        <div class="alert alert-warning d-none" id="validationErrors"></div>
+                        <div class="preview-table-container">
+                            <table class="table table-sm preview-table" id="previewTable">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-muted small"><span id="previewStats"></span></div>
+                    </div>
+
+                    <div id="progressSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-hourglass-split me-2"></i>Import Progress</h6>
+                        <div class="import-progress">
+                            <div class="progress">
+                                <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div id="progressStatus" class="text-center mt-2 text-muted">Initializing...</div>
+                        <div id="importErrorAlert" class="alert alert-danger mt-3 d-none">
+                            <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    var obSelectedFile = null;
+
+    function safeJsonOb(response) {
+        if (response.status === 401 || response.redirected) {
+            window.location.href = '/Account/Login';
+            return Promise.reject(null);
+        }
+        if (response.status === 413) {
+            return Promise.reject(new Error('File is too large. Maximum allowed size is 50 MB. Please reduce the file size and try again.'));
+        }
+        var ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            return Promise.reject(new Error('Server error (HTTP ' + response.status + '). Please try again or contact support.'));
+        }
+        return response.json();
+    }
+
+    document.getElementById('obFile').addEventListener('change', function () {
+        if (this.files && this.files.length > 0) obHandleFile(this.files[0]);
+    });
+
+    var obDrop = document.getElementById('obDropZone');
+    obDrop.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.add('dragover'); });
+    obDrop.addEventListener('dragleave', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover'); });
+    obDrop.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) obHandleFile(e.dataTransfer.files[0]);
+    });
+
+    function obHandleFile(file) {
+        var ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+        if (ext !== '.xlsx' && ext !== '.xls') { showToast('error', 'Invalid file type. Only .xlsx and .xls allowed.'); return; }
+        if (file.size > 52428800) { showToast('error', 'File size exceeds 50 MB limit.'); return; }
+        obSelectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+        document.getElementById('fileInfo').classList.remove('d-none');
+        document.getElementById('previewBtn').disabled = false;
+        document.getElementById('importBtn').disabled = false;
+    }
+
+    function obPreviewFile() {
+        if (!obSelectedFile) return;
+        var fd = new FormData();
+        fd.append('ExcelFile', obSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', document.getElementById('importType').value);
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+        showLoading();
+        fetch('/Import/Preview', { method: 'POST', body: fd })
+            .then(safeJsonOb)
+            .then(function (r) {
+                hideLoading();
+                if (r.success) { obRenderPreview(r.preview); } else { showToast('error', r.message); }
+            })
+            .catch(function (err) { hideLoading(); if (err) showToast('error', err.message || 'Preview failed.'); });
+    }
+
+    function obRenderPreview(preview) {
+        document.getElementById('previewSection').classList.remove('d-none');
+        document.getElementById('previewStats').textContent = 'Total Records: ' + preview.totalRecords + ' | Valid: ' + preview.validRecords + ' | Invalid: ' + preview.invalidRecords;
+        if (preview.validationErrors && preview.validationErrors.length > 0) {
+            var e = document.getElementById('validationErrors');
+            e.innerHTML = '<strong>Validation Errors:</strong><br/>' + preview.validationErrors.join('<br/>');
+            e.classList.remove('d-none');
+        }
+        var headers = preview.previewData && preview.previewData.length > 0 ? Object.keys(preview.previewData[0]) : [];
+        document.querySelector('#previewTable thead').innerHTML = headers.length ? '<tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>' : '';
+        document.querySelector('#previewTable tbody').innerHTML = preview.previewData.map(function (row) {
+            return '<tr>' + headers.map(function (h) { return '<td>' + (row[h] != null ? row[h] : '') + '</td>'; }).join('') + '</tr>';
+        }).join('');
+        document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function obImportFile() {
+        if (!obSelectedFile || !confirm('Are you sure you want to import this data? This may take several minutes for large files.')) return;
+        document.getElementById('progressSection').classList.remove('d-none');
+        document.getElementById('importErrorAlert').classList.add('d-none');
+        document.getElementById('importBtn').disabled = true;
+        obUpdateProgress(10, 'Uploading file...', false);
+        var fd = new FormData();
+        fd.append('ExcelFile', obSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', document.getElementById('importType').value);
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+        fetch('/Import/Preview', { method: 'POST', body: fd })
+            .then(safeJsonOb)
+            .then(function (r) {
+                if (!r.success) { obUpdateProgress(100, 'Failed', true); obShowError(r.message); document.getElementById('importBtn').disabled = false; return Promise.reject(null); }
+                obUpdateProgress(40, 'Processing data...', false);
+                return fetch('/Import/Import', { method: 'POST', headers: { 'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value } });
+            })
+            .then(function (r) {
+                if (!r) return Promise.reject(null);
+                if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+                if (r.status === 413) return Promise.reject(new Error('File is too large. Maximum allowed size is 50 MB.'));
+                if (!r.ok) return Promise.reject(new Error('Import failed (HTTP ' + r.status + ').'));
+                return r.json();
+            })
+            .then(function (r) {
+                if (!r) return;
+                if (r.success) { obUpdateProgress(100, 'Import completed successfully!', false); showToast('success', r.message); setTimeout(function () { window.location.href = '/Import/History'; }, 2000); }
+                else { obUpdateProgress(100, 'Import failed', true); obShowError(r.message); document.getElementById('importBtn').disabled = false; }
+            })
+            .catch(function (err) {
+                if (!err) return;
+                obUpdateProgress(100, 'Failed', true);
+                obShowError(err.message || 'An unexpected error occurred.');
+                document.getElementById('importBtn').disabled = false;
+            });
+    }
+
+    function obUpdateProgress(pct, msg, isError) {
+        var bar = document.getElementById('importProgressBar');
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        if (isError) { bar.classList.remove('bg-primary', 'progress-bar-animated'); bar.classList.add('bg-danger'); }
+        else { bar.classList.remove('bg-danger'); bar.classList.add('bg-primary', 'progress-bar-animated'); }
+        document.getElementById('progressStatus').textContent = msg;
+    }
+
+    function obShowError(message) {
+        var a = document.getElementById('importErrorAlert');
+        a.querySelector('span').textContent = message;
+        a.classList.remove('d-none');
+        a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+</script>
+}

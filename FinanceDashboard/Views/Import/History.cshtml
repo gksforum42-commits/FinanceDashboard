@@ -1,0 +1,131 @@
+@model List<FinanceDashboard.Models.ImportHistory>
+
+@{
+    ViewData["Title"] = "Import History";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-clock-history me-2"></i>Import History</h2>
+            <p class="text-muted mb-0">Track all data import activities</p>
+        </div>
+        <div class="page-actions">
+            <a asp-controller="Import" asp-action="UploadOriginalBudget" class="btn btn-primary btn-sm">
+                <i class="bi bi-upload me-1"></i>Upload New
+            </a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>File Name</th>
+                            <th>Type</th>
+                            <th>Year</th>
+                            <th>Records</th>
+                            <th>OB Count</th>
+                            <th>BER Count</th>
+                            <th>Errors</th>
+                            <th>Status</th>
+                            <th>Imported By</th>
+                            <th>Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr id="row-@item.Id">
+                                <td>@item.Id</td>
+                                <td>
+                                    <i class="bi bi-file-earmark-excel text-success me-1"></i>
+                                    @item.OriginalFileName
+                                    <br />
+                                    <small class="text-muted">@item.FileSizeFormatted</small>
+                                </td>
+                                <td><span class="badge bg-info">@item.ImportType</span></td>
+                                <td>@item.FinancialYear</td>
+                                <td>@item.RecordsImported.ToString("N0")</td>
+                                <td>@item.OriginalBudgetCount.ToString("N0")</td>
+                                <td>@item.BERCount.ToString("N0")</td>
+                                <td>
+                                    @if (item.ValidationErrors > 0)
+                                    {
+                                        <span class="badge bg-warning text-dark">@item.ValidationErrors</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">0</span>
+                                    }
+                                </td>
+                                <td><span class="badge @item.StatusBadgeClass">@item.Status</span></td>
+                                <td>@item.ImportedBy</td>
+                                <td>@item.ImportedDate.ToString("dd-MMM-yyyy HH:mm")</td>
+                                <td>
+                                    @if (item.BERCount > 0 || item.ImportType == "BER" || item.ImportType == "Both")
+                                    {
+                                        <button class="btn btn-outline-secondary btn-sm" disabled title="Delete disabled for BER/Both imports">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteImport(@item.Id)" title="Delete">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function () {
+            $('#historyTable').DataTable({
+                pageLength: 25,
+                order: [[10, 'desc']],
+                columnDefs: [
+                    { orderable: false, targets: [11] }
+                ]
+            });
+        });
+
+        function deleteImport(id) {
+            confirmAction('Are you sure you want to delete this import? This will soft-delete only associated Original Budget data.', function () {
+                showLoading();
+                $.ajax({
+                    url: '/Import/DeleteImport',
+                    type: 'POST',
+                    data: { id: id },
+                    headers: {
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function (response) {
+                        hideLoading();
+                        if (response.success) {
+                            showToast('success', response.message);
+                            $('#row-' + id).fadeOut(300, function () { $(this).remove(); });
+                        } else {
+                            showToast('error', response.message);
+                        }
+                    },
+                    error: function () {
+                        hideLoading();
+                        showToast('error', 'Failed to delete import.');
+                    }
+                });
+            });
+        }
+    </script>
+}

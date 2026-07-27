@@ -1,0 +1,196 @@
+@{
+    ViewData["Title"] = "Audit Logs";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-journal-text me-2"></i>Audit Logs</h2>
+            <p class="text-muted mb-0">Track all system activities</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Action</label>
+                <select id="filterAction" class="form-select form-select-sm">
+                    <option value="">All Actions</option>
+                    <option value="Login">Login</option>
+                    <option value="Logout">Logout</option>
+                    <option value="Import">Import</option>
+                    <option value="Update">Update</option>
+                    <option value="Delete">Delete</option>
+                    <option value="Export">Export</option>
+                    <option value="Create">Create</option>
+                    <option value="Error">Error</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">From Date</label>
+                <input type="date" id="filterFromDate" class="form-control form-control-sm" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">To Date</label>
+                <input type="date" id="filterToDate" class="form-control form-control-sm" />
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="loadLogs(1)"><i class="bi bi-search"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()"><i class="bi bi-x-circle"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="report-summary mb-4">
+        <div class="report-summary-card">
+            <div class="value" id="statTotal">0</div>
+            <div class="label">Total Logs</div>
+        </div>
+        <div class="report-summary-card">
+            <div class="value" id="statToday">0</div>
+            <div class="label">Today</div>
+        </div>
+        <div class="report-summary-card">
+            <div class="value" id="statErrors">0</div>
+            <div class="label">Errors</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="auditTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Action</th>
+                            <th>User</th>
+                            <th>Entity</th>
+                            <th>Status</th>
+                            <th>IP Address</th>
+                            <th>Date & Time</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        let currentPage = 1;
+        const pageSize = 50;
+
+        $(document).ready(function () {
+            // Set default dates
+            const today = new Date().toISOString().split('T')[0];
+            const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            $('#filterFromDate').val(lastMonth);
+            $('#filterToDate').val(today);
+
+            loadLogs(1);
+        });
+
+        function loadLogs(page) {
+            currentPage = page;
+            const action = $('#filterAction').val() || null;
+            const fromDate = $('#filterFromDate').val() || null;
+            const toDate = $('#filterToDate').val() || null;
+
+            ajaxGet('/Administration/GetAuditLogs', {
+                action: action,
+                fromDate: fromDate,
+                toDate: toDate,
+                page: page,
+                pageSize: pageSize
+            }, function (r) {
+                if (r.success) {
+                    renderTable(r.data);
+                    renderPagination(r.totalRecords, r.totalPages);
+                    updateStats(r.data);
+                }
+            });
+        }
+
+        function renderTable(data) {
+            const tbody = $('#auditTableBody');
+            tbody.empty();
+
+            if (data.length === 0) {
+                tbody.append('<tr><td colspan="8" class="text-center text-muted py-4">No audit logs found</td></tr>');
+                return;
+            }
+
+            data.forEach(function (log) {
+                const badgeClass = log.status === 'Success' ? 'bg-success' : log.status === 'Error' ? 'bg-danger' : 'bg-warning';
+                const iconClass = log.action === 'Login' ? 'bi-box-arrow-in-right' :
+                    log.action === 'Logout' ? 'bi-box-arrow-right' :
+                        log.action === 'Import' ? 'bi-upload' :
+                            log.action === 'Delete' ? 'bi-trash' :
+                                log.action === 'Update' ? 'bi-pencil' : 'bi-circle';
+
+                tbody.append('<tr>' +
+                    '<td>' + log.id + '</td>' +
+                    '<td><i class="bi ' + iconClass + ' me-1"></i>' + log.action + '</td>' +
+                    '<td>' + (log.userName || 'System') + '</td>' +
+                    '<td>' + (log.entityType || '-') + (log.entityId ? ' #' + log.entityId : '') + '</td>' +
+                    '<td><span class="badge ' + badgeClass + '">' + log.status + '</span></td>' +
+                    '<td><small class="text-muted">' + (log.ipAddress || '-') + '</small></td>' +
+                    '<td>' + new Date(log.actionDate).toLocaleString() + '</td>' +
+                    '<td><small class="text-muted">' + (log.newValues ? log.newValues.substring(0, 50) + '...' : '-') + '</small></td>' +
+                    '</tr>');
+            });
+        }
+
+        function renderPagination(totalRecords, totalPages) {
+            const ul = $('#pagination');
+            ul.empty();
+
+            // Previous
+            ul.append('<li class="page-item ' + (currentPage <= 1 ? 'disabled' : '') + '">' +
+                '<a class="page-link" href="javascript:void(0)" onclick="loadLogs(' + (currentPage - 1) + ')">&laquo;</a></li>');
+
+            // Page numbers
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                    ul.append('<li class="page-item ' + (i === currentPage ? 'active' : '') + '">' +
+                        '<a class="page-link" href="javascript:void(0)" onclick="loadLogs(' + i + ')">' + i + '</a></li>');
+                } else if (i === currentPage - 3 || i === currentPage + 3) {
+                    ul.append('<li class="page-item disabled"><span class="page-link">...</span></li>');
+                }
+            }
+
+            // Next
+            ul.append('<li class="page-item ' + (currentPage >= totalPages ? 'disabled' : '') + '">' +
+                '<a class="page-link" href="javascript:void(0)" onclick="loadLogs(' + (currentPage + 1) + ')">&raquo;</a></li>');
+        }
+
+        function updateStats(data) {
+            $('#statTotal').text(data.length > 0 ? data[0].id ? 'Many' : '0' : '0');
+            const today = new Date().toDateString();
+            const todayCount = data.filter(d => new Date(d.actionDate).toDateString() === today).length;
+            $('#statToday').text(formatNumber(todayCount));
+            const errorCount = data.filter(d => d.status === 'Error').length;
+            $('#statErrors').text(formatNumber(errorCount));
+        }
+
+        function clearFilters() {
+            $('#filterAction').val('');
+            const today = new Date().toISOString().split('T')[0];
+            const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            $('#filterFromDate').val(lastMonth);
+            $('#filterToDate').val(today);
+            loadLogs(1);
+        }
+    </script>
+}
