@@ -25,21 +25,12 @@
         <small id="printSubtitle" class="text-muted"></small>
     </div>
 
+    <!-- hidden sector select — kept for downstream JS that reads filterSector -->
+    <select id="filterSector" class="d-none"></select>
+
     <!-- Filters -->
     <div class="filter-bar no-print">
         <div class="filter-form">
-            <div class="form-group">
-                <label class="form-label">Financial Year</label>
-                <select id="filterYear" class="form-select form-select-sm">
-                    <option value="">All Years</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Sector</label>
-                <select id="filterSector" class="form-select form-select-sm select2" style="min-width:160px;">
-                    <option value="">All Sectors</option>
-                </select>
-            </div>
             <div class="form-group">
                 <label class="form-label">Department</label>
                 <select id="filterDept" class="form-select form-select-sm select2" style="min-width:220px;">
@@ -63,6 +54,56 @@
         </div>
     </div>
 
+    <!-- Sector Filter Cards -->
+    <div class="sector-filter-strip no-print" id="sectorFilterStrip">
+
+        <!-- Reset pill — visible only when a sector is active -->
+        <button class="sfp-reset" id="sectorResetBtn" onclick="selectSector(null)" style="display:none;">
+            <i class="bi bi-x-circle-fill me-1"></i>All Sectors
+        </button>
+
+        <!-- Non Development -->
+        <div class="sfc-card sfc-primary" id="sfc-NonDevelopment" onclick="selectSector('Non Development')">
+            <div class="sfc-icon"><i class="bi bi-building"></i></div>
+            <div class="sfc-body">
+                <div class="sfc-label">Non Development</div>
+                <div class="sfc-value" id="sfcv-NonDevelopment">—</div>
+            </div>
+            <div class="sfc-check"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+
+        <!-- Capital-A/c-I -->
+        <div class="sfc-card sfc-info" id="sfc-CapitalAcI" onclick="selectSector('Capital-A/c-I')">
+            <div class="sfc-icon"><i class="bi bi-arrow-left-right"></i></div>
+            <div class="sfc-body">
+                <div class="sfc-label">Capital-A/c-I</div>
+                <div class="sfc-value" id="sfcv-CapitalAcI">—</div>
+            </div>
+            <div class="sfc-check"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+
+        <!-- Capital-A/c-II -->
+        <div class="sfc-card sfc-success" id="sfc-CapitalAcII" onclick="selectSector('Capital-A/c-II')">
+            <div class="sfc-icon"><i class="bi bi-bank"></i></div>
+            <div class="sfc-body">
+                <div class="sfc-label">Capital-A/c-II</div>
+                <div class="sfc-value" id="sfcv-CapitalAcII">—</div>
+            </div>
+            <div class="sfc-check"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+
+        <!-- Development -->
+        <div class="sfc-card sfc-warning" id="sfc-Development" onclick="selectSector('Development')">
+            <div class="sfc-icon"><i class="bi bi-graph-up-arrow"></i></div>
+            <div class="sfc-body">
+                <div class="sfc-label">Development</div>
+                <div class="sfc-value" id="sfcv-Development">—</div>
+            </div>
+            <div class="sfc-check"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+
+    </div>
+
     <!-- Summary Totals Bar -->
     <div class="totals-banner mb-3 no-print" id="summaryBar" style="display:none!important;">
         <div class="totals-item"><i class="bi bi-cash-stack text-primary me-1"></i><span class="text-muted me-1">Alloc Budget:</span><strong id="sumAllocated">â€”</strong></div>
@@ -80,22 +121,6 @@
     <div id="tableLoadingOverlay" style="display:none; text-align:center; padding:40px 0;">
         <div class="spinner-border text-primary" role="status"></div>
         <div class="mt-2 text-muted">Loading...</div>
-    </div>
-
-    <!-- Cost Center Search Bar (between filters and table) -->
-    <div id="ccSearchBar" class="no-print mb-2" style="display:none;">
-        <div class="input-group" style="max-width:420px;">
-            <span class="input-group-text bg-primary text-white border-0">
-                <i class="bi bi-search"></i>
-            </span>
-            <input type="text" id="ccSearchBox" class="form-control"
-                   placeholder="Search Cost Center by name or code..."
-                   autocomplete="off" />
-            <button class="btn btn-outline-secondary" type="button" onclick="$('#ccSearchBox').val('').trigger('input');" title="Clear search">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-        <small class="text-muted ms-1">Results update as you type. Expand a Department → Fund first to see Cost Centers.</small>
     </div>
 
     <!-- Drill-down Tree Table -->
@@ -201,69 +226,201 @@
     .pct-warning { color:#fd7e14; font-weight:600; }
     .pct-ok      { color:#198754; font-weight:600; }
     tfoot td { font-weight:700; background:#f8f9fa; }
+
+    /* ── Sector Filter Cards Strip ─────────────────────── */
+    .sector-filter-strip {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+
+    /* Reset pill */
+    .sfp-reset {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .3rem .85rem;
+        border-radius: 20px;
+        font-size: .78rem;
+        font-weight: 600;
+        background: #f0f0f0;
+        color: #495057;
+        border: 1.5px solid #ced4da;
+        cursor: pointer;
+        transition: background .15s, border-color .15s;
+        white-space: nowrap;
+    }
+    .sfp-reset:hover { background: #e2e6ea; border-color: #adb5bd; color: #212529; }
+
+    /* Cards */
+    .sfc-card {
+        display: flex;
+        align-items: center;
+        gap: .65rem;
+        background: #fff;
+        border: 2px solid transparent;
+        border-radius: 12px;
+        padding: .55rem .9rem;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        transition: transform .18s, box-shadow .18s, border-color .18s, background .18s;
+        flex: 1;
+        min-width: 160px;
+        position: relative;
+        overflow: hidden;
+    }
+    .sfc-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 16px rgba(0,0,0,.13);
+    }
+
+    /* Colour themes — border accent on left edge */
+    .sfc-primary { border-left: 4px solid #6b7cff; }
+    .sfc-info    { border-left: 4px solid #00c9d4; }
+    .sfc-success { border-left: 4px solid #28c76f; }
+    .sfc-warning { border-left: 4px solid #e6a817; }
+
+    /* Icon box */
+    .sfc-icon {
+        width: 34px; height: 34px; border-radius: 9px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1rem; flex-shrink: 0;
+    }
+    .sfc-primary .sfc-icon { background: rgba(107,124,255,.12); color: #6b7cff; }
+    .sfc-info    .sfc-icon { background: rgba(0,201,212,.12);   color: #00c9d4; }
+    .sfc-success .sfc-icon { background: rgba(40,199,111,.12);  color: #28c76f; }
+    .sfc-warning .sfc-icon { background: rgba(230,168,23,.12);  color: #e6a817; }
+
+    /* Text */
+    .sfc-body { flex: 1; min-width: 0; }
+    .sfc-label {
+        font-size: .72rem; font-weight: 600; color: #6c757d;
+        text-transform: uppercase; letter-spacing: .04em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sfc-value {
+        font-size: .88rem; font-weight: 700; color: #1a1a2e;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Check tick — hidden until active */
+    .sfc-check {
+        font-size: 1rem;
+        opacity: 0;
+        transition: opacity .15s;
+        flex-shrink: 0;
+    }
+
+    /* ── ACTIVE STATE ── */
+    .sfc-card.sfc-active {
+        box-shadow: 0 4px 18px rgba(0,0,0,.15);
+        transform: translateY(-2px);
+    }
+    .sfc-primary.sfc-active { background: rgba(107,124,255,.08); border-color: #6b7cff !important; }
+    .sfc-info.sfc-active    { background: rgba(0,201,212,.08);   border-color: #00c9d4 !important; }
+    .sfc-success.sfc-active { background: rgba(40,199,111,.08);  border-color: #28c76f !important; }
+    .sfc-warning.sfc-active { background: rgba(230,168,23,.08);  border-color: #e6a817 !important; }
+
+    .sfc-primary.sfc-active .sfc-check { opacity: 1; color: #6b7cff; }
+    .sfc-info.sfc-active    .sfc-check { opacity: 1; color: #00c9d4; }
+    .sfc-success.sfc-active .sfc-check { opacity: 1; color: #28c76f; }
+    .sfc-warning.sfc-active .sfc-check { opacity: 1; color: #e6a817; }
+
+    .sfc-primary.sfc-active .sfc-label { color: #6b7cff; }
+    .sfc-info.sfc-active    .sfc-label { color: #00c9d4; }
+    .sfc-success.sfc-active .sfc-label { color: #28c76f; }
+    .sfc-warning.sfc-active .sfc-label { color: #e6a817; }
+
+    @@media (max-width: 768px) {
+        .sfc-card { min-width: 140px; }
+    }
 </style>
 <script>
     /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
        State
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-    let _deptData   = [];   // raw dept rows from server
-    let _expanded   = {};   // { key: bool }  - which rows are open
+    let _deptData     = [];   // raw dept rows from server
+    let _expanded     = {};   // { key: bool }  - which rows are open
+    let _activeSector = null; // sector card currently selected
 
     /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
        Boot
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
     $(document).ready(function () {
-        ajaxGet('/Dashboard/GetFinancialYears', {}, function (r) {
-            if (!r.success) return;
-            r.data.forEach(i => $('#filterYear').append('<option value="' + i.value + '">' + i.text + '</option>'));
-        });
-
-        ['#filterSector', '#filterDept', '#filterFund'].forEach(function (id) {
+        ['#filterDept', '#filterFund'].forEach(function (id) {
             $(id).select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
         });
 
-        loadSectorDropdown(null);
         loadDeptDropdown(null, null);
         loadFundDropdown(null, null, null);
 
-        $('#filterYear').on('change', function () {
-            const y = $(this).val() || null;
-            loadSectorDropdown(y);
-            loadDeptDropdown(y, null);
-            loadFundDropdown(y, null, null);
-            loadData();
-        });
-        $('#filterSector').on('change', function () {
-            const y = $('#filterYear').val() || null;
-            const s = $(this).val() || null;
-            $('#filterDept').val('').trigger('change.select2');
-            $('#filterFund').val('').trigger('change.select2');
-            loadDeptDropdown(y, s);
-            loadFundDropdown(y, null, s);
-        });
         $('#filterDept').on('change', function () {
-            const y = $('#filterYear').val() || null;
-            const s = $('#filterSector').val() || null;
             const d = $(this).val() || null;
             $('#filterFund').val('').trigger('change.select2');
-            loadFundDropdown(y, d, s);
+            loadFundDropdown(null, d, _activeSector);
         });
 
+        loadSectorCardTotals();
         loadData();
     });
+
+    /* ─── Sector card interaction ───────────────────────── */
+    function selectSector(sector) {
+        _activeSector = sector;
+
+        // Sync hidden select (used by PDF/export helpers)
+        $('#filterSector').val(sector || '');
+
+        // Update card active states
+        $('.sfc-card').removeClass('sfc-active');
+        if (sector) {
+            const idMap = {
+                'Non Development': 'sfc-NonDevelopment',
+                'Capital-A/c-I':   'sfc-CapitalAcI',
+                'Capital-A/c-II':  'sfc-CapitalAcII',
+                'Development':     'sfc-Development'
+            };
+            const cardId = idMap[sector];
+            if (cardId) $('#' + cardId).addClass('sfc-active');
+        }
+
+        // Show/hide reset pill
+        $('#sectorResetBtn').toggle(!!sector);
+
+        // Reset dept/fund dropdowns for new sector scope
+        $('#filterDept').val('').trigger('change.select2');
+        $('#filterFund').val('').trigger('change.select2');
+        loadDeptDropdown(null, sector);
+        loadFundDropdown(null, null, sector);
+
+        loadData();
+    }
+
+    /* ─── Populate sector card totals from dashboard summary ──── */
+    function loadSectorCardTotals() {
+        ajaxGet('/Dashboard/GetSummary', {}, function (r) {
+            if (!r.success) return;
+            const d = r.data;
+            $('#sfcv-NonDevelopment').text(fmtShort(d.nonDevelopmentBudget));
+            $('#sfcv-CapitalAcI').text(fmtShort(d.capitalAc1Budget));
+            $('#sfcv-CapitalAcII').text(fmtShort(d.capitalAc2Budget));
+            $('#sfcv-Development').text(fmtShort(d.developmentBudget));
+        });
+    }
+    function fmtShort(v) {
+        const n = parseFloat(v) || 0;
+        if (n >= 1e9) return 'PKR ' + (n / 1e9).toFixed(2) + ' Bn';
+        if (n >= 1e6) return 'PKR ' + (n / 1e6).toFixed(2) + ' M';
+        return 'PKR ' + Math.round(n).toLocaleString();
+    }
 
     /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
        Dropdowns
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-    function loadSectorDropdown(year) {
-        ajaxGet('/Dashboard/GetSectorLookup', year ? { financialYear: year } : {}, function (r) {
-            if (!r.success) return;
-            rebuildSelect2('#filterSector', r.data, 'All Sectors');
-        });
-    }
     function loadDeptDropdown(year, sector) {
         const p = {};
-        if (year)   p.financialYear = year;
         if (sector) p.sector = sector;
         ajaxGet('/Dashboard/GetDepartmentLookup', p, function (r) {
             if (!r.success) return;
@@ -272,7 +429,6 @@
     }
     function loadFundDropdown(year, departmentCode, sector) {
         const p = {};
-        if (year)           p.financialYear = year;
         if (sector)         p.sector = sector;
         if (departmentCode) p.departmentCode = departmentCode;
         ajaxGet('/Dashboard/GetFundLookup', p, function (r) {
@@ -280,6 +436,7 @@
             rebuildSelect2('#filterFund', r.data, 'All Funds');
         });
     }
+
     function rebuildSelect2(selector, data, placeholder) {
         const sel = $(selector);
         const cur = sel.val();
@@ -294,8 +451,7 @@
        Load top-level department data
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
     function loadData() {
-        const year   = $('#filterYear').val()   || null;
-        const sector = $('#filterSector').val() || null;
+        const sector = _activeSector || null;
         const dept   = $('#filterDept').val()   || null;
         const fund   = $('#filterFund').val()   || null;
 
@@ -304,16 +460,15 @@
         _expanded = {};
 
         ajaxGet('/Reports/GetDepartmentWiseData',
-            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund },
+            { sector: sector, departmentCode: dept, fundCode: fund },
             function (r) {
                 $('#tableLoadingOverlay').hide();
                 if (r.success) {
                     _deptData = r.data;
                     renderDeptRows(_deptData);
                     updateSummary(_deptData);
-                    updatePrintSubtitle(year, sector, dept, fund);
+                    updatePrintSubtitle(null, sector, dept, fund);
                     $('#tableContainer').show();
-                    $('#ccSearchBar').show();
                 } else {
                     showToast('error', r.message || 'Failed to load data.');
                 }
@@ -371,7 +526,6 @@
     function toggleDept(cell, deptKey) {
         const deptRow   = $(cell).closest('tr');
         const deptName  = deptRow.data('dept');
-        const year      = $('#filterYear').val() || null;
         const childKey  = 'fund_' + deptKey;
 
         if (_expanded[childKey]) {
@@ -383,9 +537,8 @@
         }
 
         $(cell).html('<span class="spinner-border spinner-border-sm text-primary"></span>');
-        const sector = $('#filterSector').val() || null;
-        const params = { departmentName: deptName, financialYear: year };
-        if (sector) params.sector = sector;
+        const params = { departmentName: deptName };
+        if (_activeSector) params.sector = _activeSector;
         ajaxGet('/Reports/GetDrillFunds', params, function (r) {
             $(cell).html('<i class="bi bi-chevron-down"></i>');
             if (!r.success || !r.data.length) { showToast('info', 'No funds found.'); return; }
@@ -397,9 +550,11 @@
                 const up = pct(f.totalActualExpenditure, f.totalBudgetGrant);
                 const fk = 'cc_' + encodeKey(deptKey + '_' + f.fundCode);
                 html +=
-                    '<tr class="dr-fund" data-parent="' + childKey + '" data-key="' + fk + '" data-fund="' + esc(f.fundCode) + '" data-fundname="' + esc(f.fundDes || f.fundCode) + '" onclick="rowToggleFund(this,\'' + encodeKey(deptKey) + '\',\'' + encodeKey(f.fundCode) + '\',\'' + fk + '\')">' +
-                    '<td class="text-center toggle-btn" style="pointer-events:none;"><i class="bi bi-chevron-right"></i></td>' +
-                    '<td>' + esc(f.fundDes || f.fundCode) + ' <small class="text-muted">(' + esc(f.fundCode) + ')</small></td>' +
+                    '<tr class="dr-fund" style="cursor:pointer;" data-parent="' + childKey + '" data-key="' + fk + '" data-fund="' + esc(f.fundCode) + '" data-fundname="' + esc(f.fundDes || f.fundCode) + '" onclick="openGrantCostCenters(\'' + esc(deptName) + '\',\'' + esc(f.fundCode) + '\',\'' + esc(f.fundDes || f.fundCode) + '\')">' +
+                    '<td class="text-center text-primary" style="font-size:.9em;"><i class="bi bi-box-arrow-up-right"></i></td>' +
+                    '<td>' + esc(f.fundDes || f.fundCode) +
+                    (f.sector ? ' <span class="badge rounded-pill bg-light text-secondary border ms-1" style="font-size:.72em;font-weight:600;">' + esc(f.sector) + '</span>' : '') +
+                    ' <small class="text-primary ms-2 no-print"><i class="bi bi-box-arrow-up-right me-1"></i>View Cost Centers</small></td>' +
                     '<td class="text-end">' + fmtC(f.totalAllocatedBudget) + '</td>' +
                     '<td class="text-end">' + fmtC(f.totalBudgetGrant) + '</td>' +
                     '<td class="text-end">' + fmtC(f.totalReleases) + '</td>' +
@@ -418,7 +573,6 @@
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
     function toggleFund(cell, deptKey, fundCode, parentKey) {
         const fundRow  = $(cell).closest('tr');
-        const year     = $('#filterYear').val() || null;
         const childKey = 'cc_' + deptKey + '_' + encodeKey(fundCode);
 
         if (_expanded[childKey]) {
@@ -429,7 +583,7 @@
         }
 
         $(cell).html('<span class="spinner-border spinner-border-sm text-primary"></span>');
-        ajaxGet('/Reports/GetCostCenterWiseData', { financialYear: year, fundCode: fundCode }, function (r) {
+        ajaxGet('/Reports/GetCostCenterWiseData', { fundCode: fundCode }, function (r) {
             $(cell).html('<i class="bi bi-chevron-down"></i>');
             if (!r.success || !r.data.length) { showToast('info', 'No cost centers found.'); return; }
             _expanded[childKey] = true;
@@ -467,7 +621,6 @@
         const ccRow   = $(cell).closest('tr');
         const ccCode  = ccRow.data('cc');
         const fund    = ccRow.data('fund');
-        const year    = $('#filterYear').val() || null;
         const childKey = 'grp_' + ccKey + '_' + fundKey;
 
         if (_expanded[childKey]) {
@@ -478,7 +631,7 @@
         }
 
         $(cell).html('<span class="spinner-border spinner-border-sm text-primary"></span>');
-        ajaxGet('/Reports/GetCostCenterGLDetail', { costCenterCode: ccCode, financialYear: year, fundCode: fund }, function (r) {
+        ajaxGet('/Reports/GetCostCenterGLDetail', { costCenterCode: ccCode, fundCode: fund }, function (r) {
             $(cell).html('<i class="bi bi-chevron-down"></i>');
             if (!r.success || !r.data.length) { showToast('info', 'No GL codes found.'); return; }
             _expanded[childKey] = true;
@@ -600,24 +753,21 @@
 
     function updatePrintSubtitle(year, sector, dept, fund) {
         const parts = [];
-        if (year)   parts.push('Year: ' + year);
         if (sector) parts.push('Sector: ' + sector);
         if (dept)   parts.push('Department: ' + dept);
         if (fund)   parts.push('Fund: ' + fund);
-        $('#printSubtitle').text(parts.length ? parts.join(' | ') : 'All Years - All Departments');
+        $('#printSubtitle').text(parts.length ? parts.join(' | ') : 'All Departments');
     }
 
     function exportExcelReport() {
-        const year   = $('#filterYear').val() || '';
-        const sector = $('#filterSector').val() || '';
+        const sector = _activeSector || '';
         const dept   = $('#filterDept').val() || '';
         const fund   = $('#filterFund').val() || '';
 
         const qs = new URLSearchParams();
-        if (year) qs.set('financialYear', year);
         if (sector) qs.set('sector', sector);
-        if (dept) qs.set('departmentCode', dept);
-        if (fund) qs.set('fundCode', fund);
+        if (dept)   qs.set('departmentCode', dept);
+        if (fund)   qs.set('fundCode', fund);
 
         window.location.href = '/Reports/ExportDepartmentWiseFull?' + qs.toString();
     }
@@ -632,8 +782,7 @@
         const pageH  = doc.internal.pageSize.getHeight();
         const cx     = pageW / 2;
 
-        const year   = $('#filterYear').val()   || 'All Years';
-        const sector = $('#filterSector').find('option:selected').text() || 'All Sectors';
+        const sector = _activeSector || 'All Sectors';
         const dept   = $('#filterDept').find('option:selected').text()   || 'All Departments';
         const fund   = $('#filterFund').find('option:selected').text()   || 'All Funds';
         const _d     = new Date();
@@ -650,7 +799,7 @@
         doc.setFontSize(8.5);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(210, 220, 245);
-        doc.text('Year: ' + year + '   |   Sector: ' + sector + '   |   Department: ' + dept + '   |   Fund: ' + fund + '   |   Generated: ' + today, cx, 42, { align: 'center' });
+        doc.text('Sector: ' + sector + '   |   Department: ' + dept + '   |   Fund: ' + fund + '   |   Generated: ' + today, cx, 42, { align: 'center' });
 
         // ── Collect rows + running grand totals (dept level only) ──────────
         const body   = [];
@@ -876,45 +1025,7 @@
     /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
        Filters clear
     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-    /* ── In-table CC search handler ───────────────────────────────── */
-    $(document).on('input', '#ccSearchBox', function () {
-        const term  = $(this).val().trim().toLowerCase();
-        const $body = $('#deptTableBody');
-        $body.find('tr').show();
-        if (!term) return;
 
-        const matchedFundKeys  = new Set();
-        const matchedDeptKeys  = new Set();
-
-        $body.find('tr.dr-cc').each(function () {
-            const $tr  = $(this);
-            const name = ($tr.data('ccname') || '').toLowerCase();
-            const code = ($tr.data('cc')     || '').toLowerCase();
-            if (name.includes(term) || code.includes(term)) {
-                matchedFundKeys.add(String($tr.data('parent') || ''));
-            } else {
-                $tr.hide();
-                const ck = $tr.data('key') || '';
-                $body.find('[data-parent^="' + ck + '"]').hide();
-            }
-        });
-
-        $body.find('tr.dr-fund').each(function () {
-            const $tr  = $(this);
-            const fKey = String($tr.data('key') || '');
-            if (!matchedFundKeys.has(fKey)) {
-                $tr.hide();
-            } else {
-                matchedDeptKeys.add(String($tr.data('parent') || ''));
-            }
-        });
-
-        $body.find('tr.dr-dept').each(function () {
-            const $tr  = $(this);
-            const dKey = 'fund_' + encodeKey(String($tr.data('dept') || ''));
-            if (!matchedDeptKeys.has(dKey)) $tr.hide();
-        });
-    });
 
     /* ── PDF download for a single Cost Center ────────────────────── */
     function downloadCCPdf(ccCode, event) {
@@ -1042,11 +1153,11 @@
     function fmtN(v) { return Math.round(v || 0).toLocaleString(); }
 
     function clearFilters() {
-        $('#filterYear').val('');
-        $('#ccSearchBox').val('');
-        $('#deptTableBody tr').show();
-        ['#filterSector','#filterDept','#filterFund'].forEach(id => $(id).val('').trigger('change.select2'));
-        loadSectorDropdown(null);
+        _activeSector = null;
+        $('#filterSector').val('');
+        $('.sfc-card').removeClass('sfc-active');
+        $('#sectorResetBtn').hide();
+        ['#filterDept','#filterFund'].forEach(id => $(id).val('').trigger('change.select2'));
         loadDeptDropdown(null, null);
         loadFundDropdown(null, null, null);
         loadData();
@@ -1071,6 +1182,15 @@ function rowToggleFund(tr, deptKey, fundCode, parentKey) {
 function rowToggleCC(tr, ccKey, fundKey, parentKey) {
     const cell = tr.querySelector('.toggle-btn');
     if (cell) toggleCC(cell, ccKey, fundKey, parentKey);
+}
+
+function openGrantCostCenters(deptName, fundCode, fundName) {
+    const qs = new URLSearchParams();
+    qs.set('departmentName', deptName);
+    qs.set('fundCode', fundCode);
+    qs.set('fundName', fundName);
+    if (_activeSector) qs.set('sector', _activeSector);
+    window.open('/Reports/GrantCostCenters?' + qs.toString(), '_blank');
 }
 </script>
 }

@@ -35,6 +35,11 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(CASE WHEN sector = 'Capital-A/c-I'   THEN allocated_budget   ELSE 0 END), 0) AS CapitalAc1Budget,
                     ISNULL(SUM(CASE WHEN sector = 'Capital-A/c-II'  THEN allocated_budget   ELSE 0 END), 0) AS CapitalAc2Budget,
                     ISNULL(SUM(CASE WHEN sector = 'Development'      THEN allocated_budget   ELSE 0 END), 0) AS DevelopmentBudget,
+                    -- Releases per sector
+                    ISNULL(SUM(CASE WHEN sector = 'Non Development' THEN Releases           ELSE 0 END), 0) AS NonDevelopmentRelease,
+                    ISNULL(SUM(CASE WHEN sector = 'Capital-A/c-I'   THEN Releases           ELSE 0 END), 0) AS CapitalAc1Release,
+                    ISNULL(SUM(CASE WHEN sector = 'Capital-A/c-II'  THEN Releases           ELSE 0 END), 0) AS CapitalAc2Release,
+                    ISNULL(SUM(CASE WHEN sector = 'Development'      THEN Releases           ELSE 0 END), 0) AS DevelopmentRelease,
                     -- Actual Expenditure per sector
                     ISNULL(SUM(CASE WHEN sector = 'Non Development' THEN ActualExpenditure  ELSE 0 END), 0) AS NonDevelopmentExpenditure,
                     ISNULL(SUM(CASE WHEN sector = 'Capital-A/c-I'   THEN ActualExpenditure  ELSE 0 END), 0) AS CapitalAc1Expenditure,
@@ -46,7 +51,12 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(ActualExpenditure),   0) AS TotalExpenditure,
                     ISNULL(SUM(FinalGrantBalance),   0) AS TotalBalance,
                     -- BER record count
-                    COUNT(1) AS TotalBERRecords
+                    COUNT(1) AS TotalBERRecords,
+                    -- Last BER import date
+                    (SELECT TOP 1 ISNULL(CompletedDate, ImportedDate)
+                     FROM budget.ImportHistory WITH (NOLOCK)
+                     WHERE ImportType = 'BER' AND Status = 'Completed' AND IsDeleted = 0
+                     ORDER BY ISNULL(CompletedDate, ImportedDate) DESC) AS BerLastUpdated
                 FROM budget.BERData WITH (NOLOCK)
                 WHERE (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
                 OPTION (RECOMPILE);";
@@ -599,6 +609,7 @@ namespace FinanceDashboard.Repositories
                 SELECT
                     FundCode,
                     MAX(ISNULL(Fund_Des, ''))         AS FundDes,
+                    MAX(ISNULL(Sector, ''))           AS Sector,
                     ISNULL(SUM(allocated_budget),0)   AS TotalAllocatedBudget,
                     ISNULL(SUM(BudgetGrant),0)        AS TotalBudgetGrant,
                     ISNULL(SUM(Releases),0)           AS TotalReleases,
@@ -748,6 +759,38 @@ namespace FinanceDashboard.Repositories
                 ORDER BY TotalAllocatedBudget DESC;";
 
             var result = await connection.QueryAsync<ObjectWiseReportViewModel>(sql,
+                new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode, CostCenterCode = costCenterCode, Keyword = keyword }, commandTimeout: 60);
+            return result.ToList();
+        }
+
+        public async Task<List<ObjectWiseGroupedViewModel>> GetObjectWiseGroupedAsync(int? financialYear = null, string? sector = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null)
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                SELECT
+                    ISNULL(Sector, '')                        AS Sector,
+                    ISNULL(MinistryDepartment, '')            AS Department,
+                    ISNULL(FundCode, '')                      AS FundCode,
+                    MAX(ISNULL(Fund_Des, ''))                 AS FundDescription,
+                    DetailObject                              AS DetailObject,
+                    MAX(GL_Desc)                              AS ObjectDescription,
+                    ISNULL(SUM(allocated_budget),0)           AS TotalAllocatedBudget,
+                    ISNULL(SUM(BudgetGrant),0)                AS TotalBudgetGrant,
+                    ISNULL(SUM(Releases),0)                   AS TotalReleases,
+                    ISNULL(SUM(FinalGrant),0)                 AS TotalFinalGrant,
+                    ISNULL(SUM(ActualExpenditure),0)          AS TotalActualExpenditure,
+                    ISNULL(SUM(FinalGrantBalance),0)          AS TotalBalance
+                FROM budget.BERData
+                WHERE (@FinancialYear   IS NULL OR FinancialYear      = @FinancialYear)
+                  AND (@Sector          IS NULL OR Sector             = @Sector)
+                  AND (@Department      IS NULL OR MinistryDepartment = @Department)
+                  AND (@FundCode        IS NULL OR FundCode           = @FundCode)
+                  AND (@CostCenterCode  IS NULL OR FundCenterCode     = @CostCenterCode)
+                  AND (@Keyword         IS NULL OR DetailObject LIKE '%' + @Keyword + '%')
+                GROUP BY Sector, MinistryDepartment, FundCode, DetailObject
+                ORDER BY Sector, MinistryDepartment, FundCode, TotalAllocatedBudget DESC;";
+
+            var result = await connection.QueryAsync<ObjectWiseGroupedViewModel>(sql,
                 new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode, CostCenterCode = costCenterCode, Keyword = keyword }, commandTimeout: 60);
             return result.ToList();
         }

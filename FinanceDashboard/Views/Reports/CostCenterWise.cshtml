@@ -52,10 +52,6 @@
                     <option value="">All Cost Centers</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label class="form-label">Search Cost Center</label>
-                <input type="text" id="filterSearch" class="form-control form-control-sm" placeholder="Code or name..." style="min-width:160px;" />
-            </div>
             <div class="filter-actions">
                 <button class="btn btn-primary btn-sm" onclick="loadData()">
                     <i class="bi bi-search me-1"></i>Search
@@ -164,11 +160,6 @@
         });
 
         loadData();
-    });
-
-    // Live search on Cost Center column (col 1)
-    $(document).on('input', '#filterSearch', function () {
-        if (ccDT) ccDT.column(1).search(this.value).draw();
     });
 
     function loadFundDropdown(year) {
@@ -342,57 +333,135 @@
     }
 
     function updatePrintSubtitle(year, fund, cc) {
-        const parts = [];
-        if (year) parts.push('Year: ' + year);
-        if (fund) parts.push('Fund: ' + fund);
-        if (cc)   parts.push('Cost Center: ' + cc);
-        $('#printSubtitle').text(parts.length ? parts.join(' | ') : 'All Years — All Funds — All Cost Centers');
+        const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
+        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
+        const yearLabel = year || 'All Years';
+        const parts = ['Year: ' + yearLabel, 'Grant: ' + fundLabel, 'Cost Center: ' + ccLabel];
+        $('#printSubtitle').text(parts.join(' | '));
     }
 
     function exportPdfReport() {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const cx    = pageW / 2;
 
-        const year = $('#filterYear').val() || 'All Years';
-        const fund = $('#filterFund').val() || 'All Funds';
-        const cc   = $('#filterCC').val()   || 'All Cost Centers';
-        const now  = new Date().toLocaleDateString('en-PK');
+        const year     = $('#filterYear').val() || 'All Years';
+        const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
+        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
+        const _d   = new Date();
+        const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
 
-        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-        doc.text('Cost Center Wise Budget Report', 40, 40);
-        doc.setFontSize(9);  doc.setFont('helvetica', 'normal');
-        doc.text('Year: ' + year + '   |   Fund: ' + fund + '   |   Cost Center: ' + cc, 40, 56);
-        doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 56, { align: 'right' });
+        // ── Header band ────────────────────────────────────────────────────────────
+        doc.setFillColor(11, 43, 82);
+        doc.rect(0, 0, pageW, 56, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(20);
+        doc.setTextColor(255, 255, 255);
+        doc.text('COST CENTER WISE BUDGET REPORT', cx, 24, { align: 'center' });
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(210, 220, 245);
+        doc.text('Year: ' + year + '   |   Grant: ' + fundLabel + '   |   Cost Center: ' + ccLabel + '   |   Generated: ' + today, cx, 42, { align: 'center' });
 
-        doc.autoTable({
-            head: [['Cost Center Description', 'Allocated Budget', 'Budget Grant',
-                    'Releases', '% Release', 'Total Expenditure', '% Utilization', 'Balance']],
-            body: window._ccPdfRows || [],
-            startY: 70,
-            styles: { fontSize: 7, cellPadding: 3 },
-            headStyles: { fillColor: [30, 50, 80], textColor: 255, fontStyle: 'bold' },
-            columnStyles: {
-                0: { cellWidth: 130 },
-                1: { halign: 'right' }, 2: { halign: 'right' },
-                3: { halign: 'right' }, 4: { halign: 'right' },
-                5: { halign: 'right' }, 6: { halign: 'right' },
-                7: { halign: 'right' }
-            },
-            didParseCell: function (data) {
-                if (window._ccPdfRows && data.row.index === window._ccPdfRows.length - 1) {
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [240, 240, 240];
-                }
-            },
-            didDrawPage: function () {
-                const pc = doc.internal.getNumberOfPages();
-                doc.setFontSize(7);
-                doc.text('Page ' + doc.internal.getCurrentPageInfo().pageNumber + ' of ' + pc,
-                    doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+        // ── Build body from _ccPdfRows (already populated by renderTable) ────────
+        const rawRows = window._ccPdfRows || [];
+        const body    = [];
+        const styles  = {};
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+
+        rawRows.forEach(function (r, i) {
+            const isTotal = (i === rawRows.length - 1);
+            body.push(r);
+            if (isTotal) {
+                styles[i] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
+            } else {
+                totA += parseFloat((r[1]||'0').replace(/,/g,''))||0;
+                totG += parseFloat((r[2]||'0').replace(/,/g,''))||0;
+                totR += parseFloat((r[3]||'0').replace(/,/g,''))||0;
+                totE += parseFloat((r[5]||'0').replace(/,/g,''))||0;
+                totB += parseFloat((r[7]||'0').replace(/,/g,''))||0;
             }
         });
 
-        doc.save('CostCenterWise_' + year.replace(/\s/g, '') + '_' + now.replace(/\//g, '-') + '.pdf');
+        // ── Table ────────────────────────────────────────────────────────────
+        doc.autoTable({
+            head: [[
+                { content: 'COST CENTER / DESCRIPTION', styles: { halign: 'left'   } },
+                { content: 'ALLOC\nBUDGET',             styles: { halign: 'right'  } },
+                { content: 'BUDGET\nGRANT',             styles: { halign: 'right'  } },
+                { content: 'RELEASES',                  styles: { halign: 'right'  } },
+                { content: '% REL',                     styles: { halign: 'center' } },
+                { content: 'EXPENDITURE',               styles: { halign: 'right'  } },
+                { content: '% UTIL',                    styles: { halign: 'center' } },
+                { content: 'BALANCE',                   styles: { halign: 'right'  } }
+            ]],
+            body: body,
+            startY: 62,
+            margin: { left: 8, right: 8, bottom: 24 },
+            tableWidth: pageW - 16,
+            styles: {
+                fontSize: 8,
+                cellPadding: { top: 6, bottom: 6, left: 5, right: 5 },
+                valign: 'middle',
+                lineColor: [220, 225, 235],
+                lineWidth: 0.3,
+                textColor: [25, 25, 25]
+            },
+            headStyles: {
+                fillColor: [11, 43, 82],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 8,
+                halign: 'center',
+                valign: 'middle',
+                minCellHeight: 30,
+                lineColor: [11, 43, 82],
+                lineWidth: 0
+            },
+            bodyStyles: { halign: 'right' },
+            alternateRowStyles: { fillColor: [248, 250, 255] },
+            columnStyles: {
+                0: { halign: 'left',   cellWidth: 350 },
+                1: { halign: 'right',  cellWidth: 95  },
+                2: { halign: 'right',  cellWidth: 95  },
+                3: { halign: 'right',  cellWidth: 90  },
+                4: { halign: 'center', cellWidth: 65  },
+                5: { halign: 'right',  cellWidth: 95  },
+                6: { halign: 'center', cellWidth: 65  },
+                7: { halign: 'right',  cellWidth: 95  }
+            },
+            didParseCell: function (d) {
+                if (d.section === 'head') return;
+                const s = styles[d.row.index];
+                if (!s) return;
+                if (s.fillColor) d.cell.styles.fillColor = s.fillColor;
+                if (s.textColor) d.cell.styles.textColor = s.textColor;
+                if (s.fontStyle) d.cell.styles.fontStyle = s.fontStyle;
+            },
+            didDrawPage: function (data) {
+                if (data.pageNumber > 1) {
+                    doc.setFillColor(11, 43, 82);
+                    doc.rect(0, 0, pageW, 28, 'F');
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(11);
+                    doc.setTextColor(255, 255, 255);
+                    doc.text('COST CENTER WISE BUDGET REPORT  (contd.)', cx, 18, { align: 'center' });
+                }
+                const pc  = doc.internal.getNumberOfPages();
+                const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                doc.setFillColor(11, 43, 82);
+                doc.rect(0, pageH - 22, pageW, 22, 'F');
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(245, 248, 252);
+                doc.text('Cost Center Wise Budget Report   |   Year: ' + year + '   |   Grant: ' + fundLabel + '   |   Page ' + cur + ' of ' + pc, cx, pageH - 9, { align: 'center' });
+            }
+        });
+
+        doc.save('CostCenterWise_' + year.replace(/\//g, '-') + '_' + today.replace(/\s/g, '-') + '.pdf');
     }
 
     function loadGLDetail(ccCode, dtRow, ico) {
@@ -453,9 +522,11 @@
     }
 
     function exportGLPdf(ccCode, ccDesc) {
-        const year = $('#filterYear').val() || 'All Years';
-        const fund = $('#filterFund').val() || 'All Funds';
-        const now  = new Date().toLocaleDateString('en-PK');
+        const year      = $('#filterYear').val() || 'All Years';
+        const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
+        const _d   = new Date();
+        const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
 
         ajaxGet('/Reports/GetCostCenterGLDetail',
             { costCenterCode: ccCode,
@@ -463,66 +534,149 @@
               fundCode: $('#filterFund').val() || null },
             function (r) {
                 if (!r.success) { showToast('error', 'Failed to load GL data for PDF.'); return; }
+
                 const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+                const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+                const pageW = doc.internal.pageSize.getWidth();
+                const pageH = doc.internal.pageSize.getHeight();
+                const cx    = pageW / 2;
 
-                doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-                doc.text('GL Detail Report — Cost Center: ' + ccCode, 40, 36);
-                if (ccDesc && ccDesc !== ccCode) {
-                    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-                    doc.text(ccDesc, 40, 50);
+                // ── Header band ─────────────────────────────────────────────────────
+                doc.setFillColor(11, 43, 82);
+                doc.rect(0, 0, pageW, 68, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(18);
+                doc.setTextColor(255, 255, 255);
+                doc.text('GL DETAIL REPORT — COST CENTER', cx, 20, { align: 'center' });
+                doc.setFontSize(10);
+                const nameLabel = (ccDesc && ccDesc !== ccCode) ? ccCode + '  –  ' + ccDesc : ccCode;
+                doc.text(nameLabel, cx, 35, { align: 'center' });
+                doc.setFontSize(8.5);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(210, 220, 245);
+                doc.text('Year: ' + year + '   |   Grant: ' + fundLabel + '   |   Generated: ' + today, cx, 50, { align: 'center' });
+
+                // ── Build body + styles ───────────────────────────────────────────────
+                const salary    = r.data.filter(g => g.glCode && g.glCode.startsWith('A01'));
+                const nonSalary = r.data.filter(g => !g.glCode || !g.glCode.startsWith('A01'));
+
+                const body   = [];
+                const styles = {};
+                let idx = 0;
+                let tAl=0, tBg=0, tRl=0, tEx=0, tBl=0;
+
+                function addGroup(label, items) {
+                    if (!items.length) return;
+                    const s = items.reduce((acc, g) => ({
+                        a:  acc.a  + g.totalAllocatedBudget,
+                        bg: acc.bg + g.totalBudgetGrant,
+                        rl: acc.rl + g.totalReleases,
+                        ex: acc.ex + g.totalActualExpenditure,
+                        bl: acc.bl + g.totalBalance
+                    }), { a:0, bg:0, rl:0, ex:0, bl:0 });
+                    const rp = s.a  > 0 ? (s.rl / s.a  * 100).toFixed(1) + '%' : '0.0%';
+                    const up = s.bg > 0 ? (s.ex / s.bg * 100).toFixed(1) + '%' : '0.0%';
+                    body.push([label, '', fmtC(s.a), fmtC(s.bg), fmtC(s.rl), rp, fmtC(s.ex), up, fmtC(s.bl)]);
+                    styles[idx++] = { fontStyle:'bold', fillColor:[224,245,224], textColor:[20,70,20] };
+
+                    items.forEach(function (g) {
+                        const grp = g.totalAllocatedBudget, gbg = g.totalBudgetGrant;
+                        const grl = g.totalReleases, gex = g.totalActualExpenditure, gbl = g.totalBalance;
+                        const grp_r = grp > 0 ? (grl / grp * 100).toFixed(1) + '%' : '0.0%';
+                        const gup   = gbg > 0 ? (gex / gbg * 100).toFixed(1) + '%' : '0.0%';
+                        body.push([g.glCode || '', g.glDescription || '', fmtC(grp), fmtC(gbg), fmtC(grl), grp_r, fmtC(gex), gup, fmtC(gbl)]);
+                        styles[idx++] = { fillColor:[255,255,255], textColor:[60,60,60], fontSize:7 };
+                        tAl+=grp; tBg+=gbg; tRl+=grl; tEx+=gex; tBl+=gbl;
+                    });
                 }
-                doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-                doc.text('Year: ' + year + '   |   Fund: ' + fund, 40, 64);
-                doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 64, { align: 'right' });
 
-                const body = r.data.map(function (g) {
-                    const rp = parseFloat(g.releasePercentage).toFixed(1);
-                    const up = parseFloat(g.utilizationPercentage).toFixed(1);
-                    return [g.glCode, g.glDescription || '—',
-                            fmtC(g.totalAllocatedBudget), fmtC(g.totalBudgetGrant),
-                            fmtC(g.totalReleases), rp + '%',
-                            fmtC(g.totalActualExpenditure), up + '%',
-                            fmtC(g.totalBalance)];
-                });
+                addGroup('Salary',     salary);
+                addGroup('Non-Salary', nonSalary);
 
-                // totals row
-                let tAl=0,tBg=0,tRl=0,tEx=0,tBl=0;
-                r.data.forEach(g => { tAl+=g.totalAllocatedBudget; tBg+=g.totalBudgetGrant;
-                    tRl+=g.totalReleases; tEx+=g.totalActualExpenditure; tBl+=g.totalBalance; });
-                const tRP = tAl>0?(tRl/tAl*100).toFixed(1):'0.0';
-                const tUP = tBg>0?(tEx/tBg*100).toFixed(1):'0.0';
-                body.push(['Total','', fmtC(tAl), fmtC(tBg), fmtC(tRl), tRP+'%', fmtC(tEx), tUP+'%', fmtC(tBl)]);
+                const totRp = tAl > 0 ? (tRl/tAl*100).toFixed(1)+'%' : '0.0%';
+                const totUp = tBg > 0 ? (tEx/tBg*100).toFixed(1)+'%' : '0.0%';
+                body.push(['GRAND TOTAL', '', fmtC(tAl), fmtC(tBg), fmtC(tRl), totRp, fmtC(tEx), totUp, fmtC(tBl)]);
+                styles[idx] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
 
+                // ── Table ──────────────────────────────────────────────────────
                 doc.autoTable({
-                    head: [['GL Code','GL Description','Alloc Budget','Budget Grant',
-                            'Releases','% Release','Expenditure','% Util','Balance']],
+                    head: [[
+                        { content: 'GL CODE',      styles: { halign: 'left'   } },
+                        { content: 'GL DESCRIPTION', styles: { halign: 'left'   } },
+                        { content: 'ALLOC\nBUDGET', styles: { halign: 'right'  } },
+                        { content: 'BUDGET\nGRANT', styles: { halign: 'right'  } },
+                        { content: 'RELEASES',      styles: { halign: 'right'  } },
+                        { content: '% REL',         styles: { halign: 'center' } },
+                        { content: 'EXPENDITURE',   styles: { halign: 'right'  } },
+                        { content: '% UTIL',        styles: { halign: 'center' } },
+                        { content: 'BALANCE',       styles: { halign: 'right'  } }
+                    ]],
                     body: body,
-                    startY: ccDesc && ccDesc !== ccCode ? 76 : 72,
-                    styles: { fontSize: 7, cellPadding: 3 },
-                    headStyles: { fillColor: [13, 71, 161], textColor: 255, fontStyle: 'bold' },
+                    startY: 74,
+                    margin: { left: 8, right: 8, bottom: 24 },
+                    tableWidth: pageW - 16,
+                    styles: {
+                        fontSize: 8,
+                        cellPadding: { top: 6, bottom: 6, left: 5, right: 5 },
+                        valign: 'middle',
+                        lineColor: [220, 225, 235],
+                        lineWidth: 0.3,
+                        textColor: [25, 25, 25]
+                    },
+                    headStyles: {
+                        fillColor: [11, 43, 82],
+                        textColor: [255, 255, 255],
+                        fontStyle: 'bold',
+                        fontSize: 8,
+                        halign: 'center',
+                        valign: 'middle',
+                        minCellHeight: 30,
+                        lineColor: [11, 43, 82],
+                        lineWidth: 0
+                    },
+                    bodyStyles: { halign: 'right' },
+                    alternateRowStyles: { fillColor: [248, 250, 255] },
                     columnStyles: {
-                        0: { cellWidth: 55 }, 1: { cellWidth: 120 },
-                        2: { halign:'right' }, 3: { halign:'right' },
-                        4: { halign:'right' }, 5: { halign:'right' },
-                        6: { halign:'right' }, 7: { halign:'right' },
-                        8: { halign:'right' }
+                        0: { halign: 'left',   cellWidth: 70  },
+                        1: { halign: 'left',   cellWidth: 220 },
+                        2: { halign: 'right',  cellWidth: 90  },
+                        3: { halign: 'right',  cellWidth: 90  },
+                        4: { halign: 'right',  cellWidth: 85  },
+                        5: { halign: 'center', cellWidth: 60  },
+                        6: { halign: 'right',  cellWidth: 90  },
+                        7: { halign: 'center', cellWidth: 60  },
+                        8: { halign: 'right',  cellWidth: 90  }
                     },
                     didParseCell: function (d) {
-                        if (d.row.index === body.length - 1) {
-                            d.cell.styles.fontStyle  = 'bold';
-                            d.cell.styles.fillColor  = [232, 240, 254];
-                        }
+                        if (d.section === 'head') return;
+                        const s = styles[d.row.index];
+                        if (!s) return;
+                        if (s.fillColor) d.cell.styles.fillColor = s.fillColor;
+                        if (s.textColor) d.cell.styles.textColor = s.textColor;
+                        if (s.fontStyle) d.cell.styles.fontStyle = s.fontStyle;
+                        if (s.fontSize)  d.cell.styles.fontSize  = s.fontSize;
                     },
-                    didDrawPage: function () {
-                        const pc = doc.internal.getNumberOfPages();
-                        doc.setFontSize(7);
-                        doc.text('Page ' + doc.internal.getCurrentPageInfo().pageNumber + ' of ' + pc,
-                            doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+                    didDrawPage: function (data) {
+                        if (data.pageNumber > 1) {
+                            doc.setFillColor(11, 43, 82);
+                            doc.rect(0, 0, pageW, 28, 'F');
+                            doc.setFont('helvetica', 'bold');
+                            doc.setFontSize(11);
+                            doc.setTextColor(255, 255, 255);
+                            doc.text('GL DETAIL REPORT  (contd.)  —  ' + ccCode, cx, 18, { align: 'center' });
+                        }
+                        const pc  = doc.internal.getNumberOfPages();
+                        const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                        doc.setFillColor(11, 43, 82);
+                        doc.rect(0, pageH - 22, pageW, 22, 'F');
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(8);
+                        doc.setTextColor(245, 248, 252);
+                        doc.text('GL Detail — ' + ccCode + '   |   Year: ' + year + '   |   Grant: ' + fundLabel + '   |   Page ' + cur + ' of ' + pc, cx, pageH - 9, { align: 'center' });
                     }
                 });
 
-                doc.save('GLDetail_' + ccCode + '_' + year.replace(/\s/g,'') + '_' + now.replace(/\//g,'-') + '.pdf');
+                doc.save('GLDetail_' + ccCode + '_' + year.replace(/\//g, '-') + '_' + today.replace(/\s/g, '-') + '.pdf');
             });
     }
 
@@ -530,18 +684,15 @@
         $('#filterYear').val('');
         $('#filterFund').val('').trigger('change');
         $('#filterCC').val('').trigger('change');
-        $('#filterSearch').val('');
-        if (ccDT) ccDT.column(1).search('').draw();
         loadFundDropdown(null);
         loadCCDropdown(null, null);
         loadData();
     }
 
     function printFiltered() {
-        const year = $('#filterYear').val() || 'All Years';
-        const fund = $('#filterFund').val() || 'All Funds';
-        const cc   = $('#filterCC').val()   || 'All Cost Centers';
-        const srch = $('#filterSearch').val() || '';
+        const year      = $('#filterYear').val() || 'All Years';
+        const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
+        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
 
         // Gather visible (filtered) rows from DataTable
         let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:10pt;">';
@@ -582,8 +733,7 @@
             '<style>body{font-family:Arial,sans-serif;margin:20px;} h3{margin-bottom:4px;} p{margin:0 0 10px;font-size:9pt;color:#555;}</style>' +
             '</head><body>' +
             '<h3>Cost Center Wise Budget Report</h3>' +
-            '<p>Year: ' + year + ' &nbsp;|&nbsp; Fund: ' + fund + ' &nbsp;|&nbsp; Cost Center: ' + cc +
-            (srch ? ' &nbsp;|&nbsp; Search: ' + srch : '') + '</p>' +
+            '<p>Year: ' + year + ' &nbsp;|&nbsp; Grant: ' + fundLabel + ' &nbsp;|&nbsp; Cost Center: ' + ccLabel + '</p>' +
             tableHtml +
             '<script>window.onload=function(){window.print();window.close();}<\/script>' +
             '</body></html>'

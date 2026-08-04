@@ -118,6 +118,71 @@ namespace FinanceDashboard.Controllers
             }
         }
 
+        // Grant Cost Centers page (new page opened when clicking a Fund/Grant row on Department Wise)
+        public IActionResult GrantCostCenters(string departmentName, string fundCode, string? fundName,
+            int? financialYear, string? sector)
+        {
+            ViewBag.DepartmentName = departmentName;
+            ViewBag.FundCode       = fundCode;
+            ViewBag.FundName       = fundName ?? fundCode;
+            ViewBag.FinancialYear  = financialYear;
+            ViewBag.Sector         = sector;
+            return View();
+        }
+
+        // Cost Center Detail page (opened when clicking a CC row on GrantCostCenters)
+        public IActionResult CostCenterDetail(string costCenterCode, string? costCenterName,
+            string? fundCode, string? fundName, string? departmentName,
+            int? financialYear, string? sector)
+        {
+            ViewBag.CostCenterCode = costCenterCode;
+            ViewBag.CostCenterName = costCenterName ?? costCenterCode;
+            ViewBag.FundCode       = fundCode ?? "";
+            ViewBag.FundName       = fundName ?? fundCode ?? "";
+            ViewBag.DepartmentName = departmentName ?? "";
+            ViewBag.FinancialYear  = financialYear;
+            ViewBag.Sector         = sector ?? "";
+            return View();
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetGrantCostCentersData(string departmentName, string fundCode,
+            int? financialYear, string? sector, string? costCenterCode)
+        {
+            try
+            {
+                var data = await _budgetRepository.GetDrillCostCentersAsync(departmentName, fundCode, financialYear, sector);
+                if (!string.IsNullOrWhiteSpace(costCenterCode))
+                    data = data.Where(x => x.FundCenterCode == costCenterCode ||
+                        (x.CostCenterDescription ?? "").Contains(costCenterCode, StringComparison.OrdinalIgnoreCase)).ToList();
+                return Json(new { success = true, data });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting grant cost centers for {Dept}/{Fund}", departmentName, fundCode);
+                return Json(new { success = false, message = ex.Message });
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetObjectCodeLookup(string costCenterCode, int? financialYear, string? fundCode)
+        {
+            try
+            {
+                var data = await _budgetRepository.GetCostCenterGLDetailAsync(costCenterCode, financialYear, fundCode);
+                var items = data.Select(x => new { value = x.GLCode, text = string.IsNullOrEmpty(x.GLDescription) ? x.GLCode : $"{x.GLCode} - {x.GLDescription}" })
+                                .DistinctBy(x => x.value)
+                                .OrderBy(x => x.value)
+                                .ToList();
+                return Json(new { success = true, data = items });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting object code lookup for {CC}", costCenterCode);
+                return Json(new { success = false, message = ex.Message });
+            }
+        }
+
         // Function Wise Report
         public IActionResult FunctionWise()
         {
@@ -156,6 +221,21 @@ namespace FinanceDashboard.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting object wise report");
+                return Json(new { success = false, message = ex.Message });
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetObjectWiseGroupedData(int? financialYear, string? sector, string? departmentCode, string? fundCode, string? costCenterCode, string? keyword)
+        {
+            try
+            {
+                var data = await _budgetRepository.GetObjectWiseGroupedAsync(financialYear, sector, departmentCode, fundCode, costCenterCode, keyword);
+                return Json(new { success = true, data });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting grouped object wise report");
                 return Json(new { success = false, message = ex.Message });
             }
         }

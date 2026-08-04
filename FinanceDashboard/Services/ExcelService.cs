@@ -323,113 +323,166 @@ namespace FinanceDashboard.Services
 
         public async Task<byte[]> ExportObjectWiseReportAsync(FilterViewModel filters)
         {
-            var data = await _budgetRepository.GetObjectWiseReportAsync(
-                filters.FinancialYear, filters.DepartmentCode, filters.FundCode, filters.CostCenterCode, filters.Keyword);
+            var data = await _budgetRepository.GetObjectWiseGroupedAsync(
+                filters.FinancialYear, filters.Sector, filters.DepartmentCode, filters.FundCode, filters.CostCenterCode, filters.Keyword);
 
             using var package = new ExcelPackage();
             var ws = package.Workbook.Worksheets.Add("Object Wise Report");
 
-            int totalCols = 9;
-            string colRange = $"A1:{(char)('A' + totalCols - 1)}";
+            const int totalCols = 9;
+            var navy  = System.Drawing.Color.FromArgb(11, 43, 82);
+            var white = System.Drawing.Color.White;
+            var sectorBg = System.Drawing.Color.FromArgb(0, 70, 127);
+            var deptBg   = System.Drawing.Color.FromArgb(14, 99, 160);
+            var fundBg   = System.Drawing.Color.FromArgb(41, 128, 185);
+            var subtotBg = System.Drawing.Color.FromArgb(214, 229, 247);
+            var grandBg  = System.Drawing.Color.FromArgb(11, 43, 82);
 
-            // Title
-            ws.Cells[1, 1].Value = "Finance Department Punjab";
-            ws.Cells[1, 1].Style.Font.Size = 14;
-            ws.Cells[1, 1].Style.Font.Bold = true;
-            ws.Cells[$"{colRange}1"].Merge = true;
-
-            ws.Cells[2, 1].Value = "Object Wise Budget Report" + (filters.FinancialYear.HasValue ? " - FY " + filters.FinancialYear : "");
-            ws.Cells[2, 1].Style.Font.Size = 11;
-            ws.Cells[$"{colRange}2"].Merge = true;
-
-            ws.Cells[3, 1].Value = $"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}";
-            ws.Cells[3, 1].Style.Font.Size = 9;
-            ws.Cells[3, 1].Style.Font.Color.SetColor(System.Drawing.Color.Gray);
-            ws.Cells[$"{colRange}3"].Merge = true;
-
-            // Filter rows
-            int filterRow = 4;
-            void AddFilter(string label, string? value) {
-                ws.Cells[filterRow, 1].Value = $"{label}: {value ?? "All"}";
-                ws.Cells[filterRow, 1].Style.Font.Italic = true;
-                ws.Cells[filterRow, 1].Style.Font.Color.SetColor(System.Drawing.Color.FromArgb(80, 80, 80));
-                ws.Cells[$"{colRange}{filterRow}"].Merge = true;
-                filterRow++;
-            }
-            AddFilter("Financial Year", filters.FinancialYear?.ToString());
-            AddFilter("Department",     filters.DepartmentCode);
-            AddFilter("Fund",           filters.FundCode);
-            AddFilter("Cost Center",    filters.CostCenterCode);
-
-            // Column headers
-            int headerRow = filterRow + 1;
-            var headers = new[] { "GL Code", "GL Description", "Alloc Budget", "Budget Grant", "Releases", "% Release", "Expenditure", "% Util", "Balance" };
-            for (int i = 0; i < headers.Length; i++)
+            string MergeRange(int r, int c1, int c2) => $"{ExcelCellAddress.GetColumnLetter(c1)}{r}:{ExcelCellAddress.GetColumnLetter(c2)}{r}";
+            void StyleBand(int row, System.Drawing.Color bg, System.Drawing.Color fg, float sz, bool bold)
             {
-                var cell = ws.Cells[headerRow, i + 1];
-                cell.Value = headers[i];
-                cell.Style.Font.Bold = true;
-                cell.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-                cell.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(30, 50, 80));
-                cell.Style.Font.Color.SetColor(System.Drawing.Color.White);
-                cell.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
-            }
-
-            // Data
-            int dataRow = headerRow + 1;
-            decimal totAl = 0, totBg = 0, totRl = 0, totEx = 0, totBl = 0;
-            foreach (var row in data)
-            {
-                ws.Cells[dataRow, 1].Value = row.DetailObject;
-                ws.Cells[dataRow, 2].Value = row.ObjectDescription ?? string.Empty;
-                ws.Cells[dataRow, 3].Value = Math.Round(row.TotalAllocatedBudget);
-                ws.Cells[dataRow, 4].Value = Math.Round(row.TotalBudgetGrant);
-                ws.Cells[dataRow, 5].Value = Math.Round(row.TotalReleases);
-                ws.Cells[dataRow, 6].Value = row.ReleasePercentage / 100;
-                ws.Cells[dataRow, 7].Value = Math.Round(row.TotalActualExpenditure);
-                ws.Cells[dataRow, 8].Value = row.UtilizationPercentage / 100;
-                ws.Cells[dataRow, 9].Value = Math.Round(row.TotalBalance);
-                for (int c = 3; c <= 5; c++) ws.Cells[dataRow, c].Style.Numberformat.Format = "#,##0";
-                ws.Cells[dataRow, 6].Style.Numberformat.Format = "0.0%";
-                ws.Cells[dataRow, 7].Style.Numberformat.Format = "#,##0";
-                ws.Cells[dataRow, 8].Style.Numberformat.Format = "0.0%";
-                ws.Cells[dataRow, 9].Style.Numberformat.Format = "#,##0";
-                for (int c = 3; c <= 9; c++) ws.Cells[dataRow, c].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
-                totAl += row.TotalAllocatedBudget; totBg += row.TotalBudgetGrant;
-                totRl += row.TotalReleases; totEx += row.TotalActualExpenditure; totBl += row.TotalBalance;
-                dataRow++;
-            }
-
-            // Totals row
-            if (data.Count > 0)
-            {
-                ws.Cells[dataRow, 1, dataRow, 2].Merge = true;
-                ws.Cells[dataRow, 1].Value = "TOTAL";
-                ws.Cells[dataRow, 1].Style.Font.Bold = true;
-                decimal totRelPct = totAl > 0 ? totRl / totAl : 0;
-                decimal totUtilPct = totBg > 0 ? totEx / totBg : 0;
-                ws.Cells[dataRow, 3].Value = Math.Round(totAl);
-                ws.Cells[dataRow, 4].Value = Math.Round(totBg);
-                ws.Cells[dataRow, 5].Value = Math.Round(totRl);
-                ws.Cells[dataRow, 6].Value = totRelPct;
-                ws.Cells[dataRow, 7].Value = Math.Round(totEx);
-                ws.Cells[dataRow, 8].Value = totUtilPct;
-                ws.Cells[dataRow, 9].Value = Math.Round(totBl);
-                for (int c = 3; c <= 5; c++) ws.Cells[dataRow, c].Style.Numberformat.Format = "#,##0";
-                ws.Cells[dataRow, 6].Style.Numberformat.Format = "0.0%";
-                ws.Cells[dataRow, 7].Style.Numberformat.Format = "#,##0";
-                ws.Cells[dataRow, 8].Style.Numberformat.Format = "0.0%";
-                ws.Cells[dataRow, 9].Style.Numberformat.Format = "#,##0";
+                ws.Cells[MergeRange(row, 1, totalCols)].Merge = true;
                 for (int c = 1; c <= totalCols; c++)
                 {
-                    ws.Cells[dataRow, c].Style.Font.Bold = true;
-                    ws.Cells[dataRow, c].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-                    ws.Cells[dataRow, c].Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightBlue);
-                    if (c >= 3) ws.Cells[dataRow, c].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
+                    ws.Cells[row, c].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                    ws.Cells[row, c].Style.Fill.BackgroundColor.SetColor(bg);
+                    ws.Cells[row, c].Style.Font.Color.SetColor(fg);
+                    ws.Cells[row, c].Style.Font.Bold = bold;
+                    ws.Cells[row, c].Style.Font.Size = sz;
+                }
+            }
+            void WriteNumRow(int row, decimal al, decimal bg2, decimal rl, decimal fg2, decimal ex, decimal bl, System.Drawing.Color fillColor, bool bold)
+            {
+                decimal relPct  = al > 0 ? rl / al : 0;
+                decimal utilPct = fg2 > 0 ? ex / fg2 : 0;
+                ws.Cells[row, 3].Value = Math.Round(al); ws.Cells[row, 4].Value = Math.Round(bg2);
+                ws.Cells[row, 5].Value = Math.Round(rl); ws.Cells[row, 6].Value = relPct;
+                ws.Cells[row, 7].Value = Math.Round(ex); ws.Cells[row, 8].Value = utilPct;
+                ws.Cells[row, 9].Value = Math.Round(bl);
+                for (int c = 3; c <= 5; c++) ws.Cells[row, c].Style.Numberformat.Format = "#,##0";
+                ws.Cells[row, 6].Style.Numberformat.Format = "0.0%";
+                ws.Cells[row, 7].Style.Numberformat.Format = "#,##0";
+                ws.Cells[row, 8].Style.Numberformat.Format = "0.0%";
+                ws.Cells[row, 9].Style.Numberformat.Format = "#,##0";
+                for (int c = 1; c <= totalCols; c++)
+                {
+                    ws.Cells[row, c].Style.Font.Bold = bold;
+                    ws.Cells[row, c].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                    ws.Cells[row, c].Style.Fill.BackgroundColor.SetColor(fillColor);
+                    if (c >= 3) ws.Cells[row, c].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Right;
                 }
             }
 
+            int row = 1;
+            // ── Title ──────────────────────────────────────────────────────────────
+            StyleBand(row, navy, white, 14, true);
+            ws.Cells[row, 1].Value = "Finance Department Punjab";
+            row++;
+            StyleBand(row, navy, white, 11, false);
+            ws.Cells[row, 1].Value = "Object Wise Budget Report" + (filters.FinancialYear.HasValue ? $"  —  FY {filters.FinancialYear}" : "");
+            row++;
+            StyleBand(row, System.Drawing.Color.FromArgb(40, 60, 100), System.Drawing.Color.FromArgb(200, 215, 240), 9, false);
+            ws.Cells[row, 1].Value = $"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}   |   Sector: {filters.Sector ?? "All"}   |   Dept: {filters.DepartmentCode ?? "All"}   |   Fund: {filters.FundCode ?? "All"}   |   CC: {filters.CostCenterCode ?? "All"}   |   Object: {filters.Keyword ?? "All"}";
+            row++;
+
+            // ── Column headers ────────────────────────────────────────────────────
+            var headers = new[] { "Object Code", "Object Description", "Alloc Budget", "Budget Grant", "Releases", "% Release", "Expenditure", "% Util", "Balance" };
+            for (int c = 1; c <= totalCols; c++)
+            {
+                var cell = ws.Cells[row, c];
+                cell.Value = headers[c - 1];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                cell.Style.Fill.BackgroundColor.SetColor(navy);
+                cell.Style.Font.Color.SetColor(white);
+                cell.Style.HorizontalAlignment = c <= 2 ? OfficeOpenXml.Style.ExcelHorizontalAlignment.Left : OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                cell.Style.WrapText = true;
+            }
+            ws.Row(row).Height = 32;
+            row++;
+
+            // ── Hierarchical data ─────────────────────────────────────────────────
+            decimal gAl = 0, gBg = 0, gRl = 0, gFg = 0, gEx = 0, gBl = 0;
+            var altGrey = System.Drawing.Color.FromArgb(248, 250, 255);
+
+            var bySector = data.GroupBy(d => d.Sector).OrderBy(g => g.Key);
+            foreach (var sGrp in bySector)
+            {
+                // Sector heading
+                StyleBand(row, sectorBg, white, 10, true);
+                ws.Cells[row, 1].Value = $"  SECTOR:  {sGrp.Key}";
+                ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                row++;
+
+                decimal sAl=0, sBg=0, sRl=0, sFg=0, sEx=0, sBl=0;
+
+                var byDept = sGrp.GroupBy(d => d.Department).OrderBy(g => g.Key);
+                foreach (var dGrp in byDept)
+                {
+                    StyleBand(row, deptBg, white, 9.5f, true);
+                    ws.Cells[row, 1].Value = $"    Department:  {dGrp.Key}";
+                    ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                    row++;
+
+                    decimal dAl=0, dBg=0, dRl=0, dFg=0, dEx=0, dBl=0;
+
+                    var byFund = dGrp.GroupBy(d => new { d.FundCode, d.FundDescription }).OrderBy(g => g.Key.FundCode);
+                    foreach (var fGrp in byFund)
+                    {
+                        StyleBand(row, fundBg, white, 9, false);
+                        ws.Cells[row, 1].Value = $"      Fund:  {fGrp.Key.FundCode}  {fGrp.Key.FundDescription}";
+                        ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                        row++;
+
+                        decimal fAl=0, fBg=0, fRl=0, fFg=0, fEx=0, fBl=0;
+                        bool alt = false;
+                        foreach (var item in fGrp.OrderByDescending(x => x.TotalAllocatedBudget))
+                        {
+                            var rowFill = alt ? altGrey : white;
+                            ws.Cells[row, 1].Value = item.DetailObject;
+                            ws.Cells[row, 2].Value = item.ObjectDescription ?? string.Empty;
+                            WriteNumRow(row, item.TotalAllocatedBudget, item.TotalBudgetGrant, item.TotalReleases, item.TotalFinalGrant, item.TotalActualExpenditure, item.TotalBalance, rowFill, false);
+                            ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                            ws.Cells[row, 2].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                            fAl += item.TotalAllocatedBudget; fBg += item.TotalBudgetGrant;
+                            fRl += item.TotalReleases; fFg += item.TotalFinalGrant;
+                            fEx += item.TotalActualExpenditure; fBl += item.TotalBalance;
+                            alt = !alt; row++;
+                        }
+                        // Fund subtotal
+                        ws.Cells[row, 1, row, 2].Merge = true;
+                        ws.Cells[row, 1].Value = $"      Subtotal — Fund: {fGrp.Key.FundCode}";
+                        ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                        WriteNumRow(row, fAl, fBg, fRl, fFg, fEx, fBl, subtotBg, true);
+                        row++;
+                        dAl += fAl; dBg += fBg; dRl += fRl; dFg += fFg; dEx += fEx; dBl += fBl;
+                    }
+                    // Dept subtotal
+                    ws.Cells[row, 1, row, 2].Merge = true;
+                    ws.Cells[row, 1].Value = $"    Subtotal — Dept: {dGrp.Key}";
+                    ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                    WriteNumRow(row, dAl, dBg, dRl, dFg, dEx, dBl, System.Drawing.Color.FromArgb(185, 210, 240), true);
+                    row++;
+                    sAl += dAl; sBg += dBg; sRl += dRl; sFg += dFg; sEx += dEx; sBl += dBl;
+                }
+                // Sector subtotal
+                ws.Cells[row, 1, row, 2].Merge = true;
+                ws.Cells[row, 1].Value = $"  Subtotal — Sector: {sGrp.Key}";
+                ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+                WriteNumRow(row, sAl, sBg, sRl, sFg, sEx, sBl, System.Drawing.Color.FromArgb(155, 190, 230), true);
+                row++;
+                gAl += sAl; gBg += sBg; gRl += sRl; gFg += sFg; gEx += sEx; gBl += sBl;
+            }
+
+            // ── Grand total ───────────────────────────────────────────────────────
+            ws.Cells[row, 1, row, 2].Merge = true;
+            ws.Cells[row, 1].Value = "GRAND TOTAL";
+            ws.Cells[row, 1].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+            WriteNumRow(row, gAl, gBg, gRl, gFg, gEx, gBl, grandBg, true);
+            for (int c = 1; c <= totalCols; c++) ws.Cells[row, c].Style.Font.Color.SetColor(white);
+
             ws.Cells.AutoFitColumns();
+            ws.Column(2).Width = 40; // description can be wide
             return await Task.FromResult(package.GetAsByteArray());
         }
 

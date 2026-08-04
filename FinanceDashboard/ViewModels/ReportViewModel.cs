@@ -6,6 +6,7 @@ namespace FinanceDashboard.ViewModels
     {
         public string FundCode        { get; set; } = string.Empty;
         public string FundDes         { get; set; } = string.Empty;   // Fund_Des
+        public string Sector          { get; set; } = string.Empty;   // Sector
         public decimal TotalAllocatedBudget    { get; set; }          // SUM(allocated_budget)
         public decimal TotalBudgetGrant        { get; set; }          // SUM(BudgetGrant)
         public decimal TotalReleases           { get; set; }          // SUM(Releases)
@@ -74,6 +75,27 @@ namespace FinanceDashboard.ViewModels
         public decimal TotalFinalGrant        { get; set; }
         public decimal TotalActualExpenditure { get; set; }
         public decimal TotalBalance           { get; set; }
+
+        public decimal ReleasePercentage     => TotalAllocatedBudget > 0
+            ? Math.Round(TotalReleases / TotalAllocatedBudget * 100, 2) : 0;
+        public decimal UtilizationPercentage => TotalFinalGrant > 0
+            ? Math.Round(TotalActualExpenditure / TotalFinalGrant * 100, 2) : 0;
+    }
+
+    public class ObjectWiseGroupedViewModel
+    {
+        public string  Sector               { get; set; } = string.Empty;
+        public string  Department           { get; set; } = string.Empty;
+        public string  FundCode             { get; set; } = string.Empty;
+        public string? FundDescription      { get; set; }
+        public string  DetailObject         { get; set; } = string.Empty;
+        public string? ObjectDescription    { get; set; }
+        public decimal TotalAllocatedBudget { get; set; }
+        public decimal TotalBudgetGrant     { get; set; }
+        public decimal TotalReleases        { get; set; }
+        public decimal TotalFinalGrant      { get; set; }
+        public decimal TotalActualExpenditure { get; set; }
+        public decimal TotalBalance         { get; set; }
 
         public decimal ReleasePercentage     => TotalAllocatedBudget > 0
             ? Math.Round(TotalReleases / TotalAllocatedBudget * 100, 2) : 0;

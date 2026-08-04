@@ -61,6 +61,12 @@
                     <option value="">All Cost Centers</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label class="form-label">Object Code</label>
+                <select id="filterObj" class="form-select form-select-sm select2" style="min-width:200px;" disabled>
+                    <option value="">All Object Codes</option>
+                </select>
+            </div>
             <div class="filter-actions">
                 <button class="btn btn-primary btn-sm" onclick="loadData()">
                     <i class="bi bi-search me-1"></i>Search
@@ -161,10 +167,11 @@
             r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
         });
 
-        $('#filterSector').select2({ theme: 'bootstrap-5', placeholder: 'All Sectors',     allowClear: true, width: '100%' });
-        $('#filterDept').select2(  { theme: 'bootstrap-5', placeholder: 'All Departments', allowClear: true, width: '100%' });
-        $('#filterFund').select2(  { theme: 'bootstrap-5', placeholder: 'All Funds',        allowClear: true, width: '100%' });
-        $('#filterCC').select2(    { theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
+        $('#filterSector').select2({ theme: 'bootstrap-5', placeholder: 'All Sectors',      allowClear: true, width: '100%' });
+        $('#filterDept').select2(  { theme: 'bootstrap-5', placeholder: 'All Departments',  allowClear: true, width: '100%' });
+        $('#filterFund').select2(  { theme: 'bootstrap-5', placeholder: 'All Funds',         allowClear: true, width: '100%' });
+        $('#filterCC').select2(    { theme: 'bootstrap-5', placeholder: 'All Cost Centers',  allowClear: true, width: '100%' });
+        $('#filterObj').select2(   { theme: 'bootstrap-5', placeholder: 'All Object Codes',  allowClear: true, width: '100%' });
 
         loadSectorDropdown(null);
         loadDeptDropdown(null, null);
@@ -177,6 +184,7 @@
             loadDeptDropdown(yr, null);
             loadFundDropdown(yr, null, null);
             loadCCDropdown(yr, null);
+            resetObjDropdown();
             loadData();
         });
         $('#filterSector').on('change', function () {
@@ -188,6 +196,7 @@
             loadDeptDropdown(yr, s);
             loadFundDropdown(yr, null, s);
             loadCCDropdown(yr, null);
+            resetObjDropdown();
         });
         $('#filterDept').on('change', function () {
             const yr = $('#filterYear').val() || null;
@@ -197,6 +206,7 @@
             $('#filterCC').val('').trigger('change.select2');
             loadFundDropdown(yr, d, s);
             loadCCDropdown(yr, null);
+            resetObjDropdown();
             loadData();
         });
         $('#filterFund').on('change', function () {
@@ -204,9 +214,14 @@
             const fc = $(this).val() || null;
             $('#filterCC').val('').trigger('change.select2');
             loadCCDropdown(yr, fc);
+            resetObjDropdown();
             loadData();
         });
-        $('#filterCC').on('change', function () { loadData(); });
+        $('#filterCC').on('change', function () {
+            resetObjDropdown();
+            loadData();
+        });
+        $('#filterObj').on('change', function () { loadData(); });
 
         loadData();
     });
@@ -272,21 +287,46 @@
         });
     }
 
+    function resetObjDropdown() {
+        const sel = $('#filterObj');
+        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+        sel.val('').empty().append('<option value="">All Object Codes</option>');
+        sel.prop('disabled', true)
+           .select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes', allowClear: true, width: '100%' });
+    }
+
+    function populateObjDropdown(data) {
+        const sel = $('#filterObj');
+        const cur = sel.val();
+        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+        sel.empty().append('<option value="">All Object Codes</option>');
+        data.forEach(function (row) {
+            const label = row.detailObject + (row.objectDescription ? ' – ' + row.objectDescription : '');
+            sel.append('<option value="' + esc(row.detailObject) + '">' + label + '</option>');
+        });
+        sel.prop('disabled', data.length === 0);
+        sel.select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes', allowClear: true, width: '100%' });
+        if (cur && data.some(r => r.detailObject === cur)) sel.val(cur).trigger('change.select2');
+    }
+
     function loadData() {
         const year   = $('#filterYear').val()   || null;
         const sector = $('#filterSector').val() || null;
         const dept   = $('#filterDept').val()   || null;
         const fund   = $('#filterFund').val()   || null;
         const cc     = $('#filterCC').val()     || null;
+        const obj    = $('#filterObj').val()    || null;
         showTableLoading();
         ajaxGet('/Reports/GetObjectWiseData',
-            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc },
+            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj },
             function (r) {
                 hideTableLoading();
                 if (r.success) {
+                    // Populate object dropdown only when no object is pre-selected
+                    if (!obj) populateObjDropdown(r.data);
                     renderTable(r.data);
                     updateSummary(r.data);
-                    updatePrintSubtitle(year, sector, dept, fund, cc);
+                    updatePrintSubtitle(year, sector, dept, fund, cc, obj);
                 } else {
                     showToast('error', r.message || 'Failed to load data.');
                 }
@@ -391,61 +431,256 @@
         $('#summaryBar').css('display', '');
     }
 
-    function updatePrintSubtitle(year, sector, dept, fund, cc) {
-        const parts = [];
-        if (year)   parts.push('Year: ' + year);
-        if (sector) parts.push('Sector: ' + sector);
-        if (dept)   parts.push('Dept: ' + dept);
-        if (fund)   parts.push('Fund: ' + fund);
-        if (cc)     parts.push('Cost Center: ' + cc);
-        $('#printSubtitle').text(parts.length ? parts.join(' | ') : 'All Years — All');
+    function updatePrintSubtitle(year, sector, dept, fund, cc, obj) {
+        const yearLbl   = year   || 'All Years';
+        const sectorLbl = $('#filterSector').find('option:selected').text() || 'All Sectors';
+        const deptLbl   = $('#filterDept').find('option:selected').text()   || 'All Departments';
+        const fundLbl   = $('#filterFund').find('option:selected').text()   || 'All Funds';
+        const ccLbl     = $('#filterCC').find('option:selected').text()     || 'All Cost Centers';
+        const objLbl    = obj ? ($('#filterObj').find('option:selected').text() || obj) : 'All Objects';
+        $('#printSubtitle').text('Year: ' + yearLbl + ' | Sector: ' + sectorLbl + ' | Dept: ' + deptLbl +
+            ' | Fund: ' + fundLbl + ' | CC: ' + ccLbl + ' | Object: ' + objLbl);
     }
 
     function exportPdfReport() {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-        const year = $('#filterYear').val() || 'All Years';
-        const dept = $('#filterDept').val() || 'All Departments';
-        const fund = $('#filterFund').val() || 'All Funds';
-        const cc   = $('#filterCC').val()   || 'All Cost Centers';
-        const now  = new Date().toLocaleDateString('en-PK');
+        const year    = $('#filterYear').val()   || null;
+        const sector  = $('#filterSector').val() || null;
+        const dept    = $('#filterDept').val()   || null;
+        const fund    = $('#filterFund').val()   || null;
+        const cc      = $('#filterCC').val()     || null;
+        const obj     = $('#filterObj').val()    || null;
 
-        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-        doc.text('Object Wise Budget Report', 40, 40);
-        doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-        doc.text('Year: ' + year + '   |   Department: ' + dept + '   |   Fund: ' + fund + '   |   Cost Center: ' + cc, 40, 56);
-        doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 56, { align: 'right' });
+        ajaxGet('/Reports/GetObjectWiseGroupedData',
+            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj },
+            function (r) {
+                if (!r.success || !r.data.length) { showToast('error', 'No data to export.'); return; }
+                buildObjectPdf(r.data, year, sector, dept, fund, cc, obj);
+            },
+            function () { showToast('error', 'Failed to load grouped data for PDF.'); });
+    }
+
+    function buildObjectPdf(rows, year, sector, dept, fund, cc, obj) {
+        const { jsPDF } = window.jspdf;
+        const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const cx    = pageW / 2;
+        const _d    = new Date();
+        const _mon  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
+
+        const yearLbl   = year   || 'All Years';
+        const sectorLbl = sector ? ($('#filterSector').find('option:selected').text() || sector) : 'All Sectors';
+        const deptLbl   = dept   ? ($('#filterDept').find('option:selected').text()   || dept)   : 'All Departments';
+        const fundLbl   = fund   ? ($('#filterFund').find('option:selected').text()   || fund)   : 'All Funds';
+        const ccLbl     = cc     ? ($('#filterCC').find('option:selected').text()     || cc)     : 'All Cost Centers';
+        const objLbl    = obj    ? ($('#filterObj').find('option:selected').text()    || obj)    : 'All Objects';
+
+        // colours
+        const C_NAVY    = [11, 43, 82];
+        const C_SECTOR  = [0, 70, 127];
+        const C_DEPT    = [14, 99, 160];
+        const C_FUND    = [41, 128, 185];
+        const C_SUBTOT  = [214, 229, 247];
+        const C_ALTROW  = [248, 250, 255];
+        const C_WHITE   = [255, 255, 255];
+        const C_DARK    = [25, 25, 25];
+
+        const COLS = [70, 210, 85, 85, 80, 52, 85, 52, 80];
+        const L_MARGIN = 8, R_MARGIN = 8;
+        const tableW = pageW - L_MARGIN - R_MARGIN;
+
+        function drawPageHeader(pgDoc, isFirst) {
+            pgDoc.setFillColor(...C_NAVY);
+            pgDoc.rect(0, 0, pageW, isFirst ? 62 : 28, 'F');
+            pgDoc.setFont('helvetica', 'bold');
+            pgDoc.setFontSize(isFirst ? 20 : 11);
+            pgDoc.setTextColor(...C_WHITE);
+            pgDoc.text('OBJECT WISE BUDGET REPORT' + (isFirst ? '' : '  (contd.)'), cx, isFirst ? 24 : 18, { align: 'center' });
+            if (isFirst) {
+                pgDoc.setFontSize(8.5); pgDoc.setFont('helvetica', 'normal');
+                pgDoc.setTextColor(210, 220, 245);
+                pgDoc.text('Year: ' + yearLbl + '   |   Sector: ' + sectorLbl + '   |   Dept: ' + deptLbl + '   |   Fund: ' + fundLbl, cx, 40, { align: 'center' });
+                pgDoc.text('Cost Center: ' + ccLbl + '   |   Object Code: ' + objLbl + '   |   Generated: ' + today, cx, 52, { align: 'center' });
+            }
+        }
+
+        function drawPageFooter(pgDoc) {
+            const pc  = pgDoc.internal.getNumberOfPages();
+            const cur = pgDoc.internal.getCurrentPageInfo().pageNumber;
+            pgDoc.setFillColor(...C_NAVY);
+            pgDoc.rect(0, pageH - 22, pageW, 22, 'F');
+            pgDoc.setFont('helvetica', 'normal'); pgDoc.setFontSize(8);
+            pgDoc.setTextColor(245, 248, 252);
+            pgDoc.text('Object Wise Budget Report   |   ' + yearLbl + '   |   Page ' + cur + ' of ' + pc, cx, pageH - 9, { align: 'center' });
+        }
+
+        // column header row
+        const HEAD = [
+            { content: 'OBJECT\nCODE',   styles: { halign: 'left'   } },
+            { content: 'DESCRIPTION',    styles: { halign: 'left'   } },
+            { content: 'ALLOC\nBUDGET',  styles: { halign: 'right'  } },
+            { content: 'BUDGET\nGRANT',  styles: { halign: 'right'  } },
+            { content: 'RELEASES',       styles: { halign: 'right'  } },
+            { content: '% REL',          styles: { halign: 'center' } },
+            { content: 'EXPENDITURE',    styles: { halign: 'right'  } },
+            { content: '% UTIL',         styles: { halign: 'center' } },
+            { content: 'BALANCE',        styles: { halign: 'right'  } }
+        ];
+
+        function fmtN(v) { return Math.round(parseFloat(v) || 0).toLocaleString('en-PK'); }
+        function pct(a, b) { return b > 0 ? (a / b * 100).toFixed(1) + '%' : '0.0%'; }
+        function subtotRow(label, item, fillColor, fontColor) {
+            return {
+                cells: [
+                    { content: label, colSpan: 2, styles: { halign: 'left', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.al), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.bg), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.rl), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: pct(item.rl, item.al), styles: { halign: 'center', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.ex), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: pct(item.ex, item.fg), styles: { halign: 'center', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.bl), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } }
+                ]
+            };
+        }
+
+        // Build body
+        const body = [];
+        const rowStyles = {};
+
+        // accumulate from a raw API row (long property names) into a totals object
+        function acc(t, r) {
+            t.al += r.totalAllocatedBudget; t.bg += r.totalBudgetGrant;
+            t.rl += r.totalReleases; t.fg += r.totalFinalGrant;
+            t.ex += r.totalActualExpenditure; t.bl += r.totalBalance;
+        }
+        // roll up from one totals object (short names) into another
+        function roll(dest, src) {
+            dest.al += src.al; dest.bg += src.bg;
+            dest.rl += src.rl; dest.fg += src.fg;
+            dest.ex += src.ex; dest.bl += src.bl;
+        }
+        function zero() { return { al:0, bg:0, rl:0, fg:0, ex:0, bl:0 }; }
+
+        const grand = zero();
+        // group by sector
+        const secMap = {};
+        rows.forEach(function (r) {
+            (secMap[r.sector] = secMap[r.sector] || {})[r.department] = secMap[r.sector][r.department] || {};
+            const dMap = secMap[r.sector][r.department];
+            const fKey = r.fundCode;
+            (dMap[fKey] = dMap[fKey] || { desc: r.fundDescription, items: [] }).items.push(r);
+        });
+
+        Object.keys(secMap).sort().forEach(function (sec) {
+            const sTotal = zero();
+            // Sector heading row
+            const sIdx = body.length;
+            body.push([{ content: 'SECTOR:  ' + sec, colSpan: 9, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_SECTOR, textColor: C_WHITE, fontSize: 9 } }]);
+            rowStyles[sIdx] = { minCellHeight: 18 };
+
+            const dMap = secMap[sec];
+            Object.keys(dMap).sort().forEach(function (dep) {
+                const dTotal = zero();
+                const dIdx = body.length;
+                body.push([{ content: '  Department:  ' + dep, colSpan: 9, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_DEPT, textColor: C_WHITE, fontSize: 8.5 } }]);
+                rowStyles[dIdx] = { minCellHeight: 16 };
+
+                const fObj = dMap[dep];
+                Object.keys(fObj).sort().forEach(function (fc) {
+                    const fTotal = zero();
+                    const fIdx = body.length;
+                    const fDesc = fObj[fc].desc || '';
+                    body.push([{ content: '    Fund:  ' + fc + (fDesc ? '  ' + fDesc : ''), colSpan: 9, styles: { halign: 'left', fontStyle: 'normal', fillColor: C_FUND, textColor: C_WHITE, fontSize: 8 } }]);
+                    rowStyles[fIdx] = { minCellHeight: 15 };
+
+                    fObj[fc].items.forEach(function (item, altIdx) {
+                        const fillColor = altIdx % 2 === 0 ? C_WHITE : C_ALTROW;
+                        const relPct = pct(item.totalReleases, item.totalAllocatedBudget);
+                        const utilPct = pct(item.totalActualExpenditure, item.totalFinalGrant);
+                        body.push([
+                            { content: item.detailObject,            styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
+                            { content: item.objectDescription || '—', styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
+                            { content: fmtN(item.totalAllocatedBudget),    styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                            { content: fmtN(item.totalBudgetGrant),        styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                            { content: fmtN(item.totalReleases),           styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                            { content: relPct,                             styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
+                            { content: fmtN(item.totalActualExpenditure),  styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                            { content: utilPct,                            styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
+                            { content: fmtN(item.totalBalance),            styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } }
+                        ]);
+                        acc(fTotal, { totalAllocatedBudget: item.totalAllocatedBudget, totalBudgetGrant: item.totalBudgetGrant, totalReleases: item.totalReleases, totalFinalGrant: item.totalFinalGrant, totalActualExpenditure: item.totalActualExpenditure, totalBalance: item.totalBalance });
+                    });
+                    // Fund subtotal
+                    body.push(subtotRow('    Subtotal — Fund: ' + fc, fTotal, C_SUBTOT, C_DARK).cells);
+                    roll(dTotal, fTotal); roll(sTotal, fTotal); roll(grand, fTotal);
+                });
+                // Dept subtotal
+                body.push(subtotRow('  Subtotal — Dept: ' + dep, dTotal, [185, 210, 240], C_DARK).cells);
+            });
+            // Sector subtotal
+            body.push(subtotRow('Subtotal — Sector: ' + sec, sTotal, [155, 190, 230], C_DARK).cells);
+        });
+
+        // Grand total
+        body.push(subtotRow('GRAND TOTAL', grand, C_NAVY, C_WHITE).cells);
+
+        // Draw the first page header before autoTable
+        drawPageHeader(doc, true);
 
         doc.autoTable({
-            head: [['GL Code', 'GL Description', 'Alloc Budget', 'Budget Grant',
-                    'Releases', '% Release', 'Expenditure', '% Util', 'Balance']],
-            body: window._objPdfRows || [],
-            startY: 70,
-            styles: { fontSize: 7, cellPadding: 3 },
-            headStyles: { fillColor: [30, 50, 80], textColor: 255, fontStyle: 'bold' },
+            head: [HEAD],
+            body: body,
+            startY: 68,
+            margin: { left: L_MARGIN, right: R_MARGIN, bottom: 28 },
+            tableWidth: tableW,
+            styles: {
+                fontSize: 7.5,
+                cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
+                valign: 'middle',
+                lineColor: [220, 225, 235],
+                lineWidth: 0.3,
+                textColor: C_DARK
+            },
+            headStyles: {
+                fillColor: C_NAVY,
+                textColor: C_WHITE,
+                fontStyle: 'bold',
+                fontSize: 8,
+                halign: 'center',
+                valign: 'middle',
+                minCellHeight: 30,
+                lineWidth: 0
+            },
             columnStyles: {
-                0: { cellWidth: 70 },
-                1: { cellWidth: 120 },
-                2: { halign: 'right' }, 3: { halign: 'right' },
-                4: { halign: 'right' }, 5: { halign: 'right' },
-                6: { halign: 'right' }, 7: { halign: 'right' },
-                8: { halign: 'right' }
+                0: { cellWidth: COLS[0] },
+                1: { cellWidth: COLS[1] },
+                2: { cellWidth: COLS[2] },
+                3: { cellWidth: COLS[3] },
+                4: { cellWidth: COLS[4] },
+                5: { cellWidth: COLS[5] },
+                6: { cellWidth: COLS[6] },
+                7: { cellWidth: COLS[7] },
+                8: { cellWidth: COLS[8] }
             },
-            didParseCell: function (data) {
-                if (window._objPdfRows && data.row.index === window._objPdfRows.length - 1) {
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [240, 240, 240];
-                }
-            },
-            didDrawPage: function () {
-                const pc = doc.internal.getNumberOfPages();
-                doc.setFontSize(7);
-                doc.text('Page ' + doc.internal.getCurrentPageInfo().pageNumber + ' of ' + pc,
-                    doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+            didDrawPage: function (data) {
+                if (data.pageNumber > 1) drawPageHeader(doc, false);
+                drawPageFooter(doc);
             }
         });
 
-        doc.save('ObjectWise_' + year.replace(/\s/g, '') + '_' + now.replace(/\//g, '-') + '.pdf');
+        doc.save('ObjectWise_' + yearLbl.replace(/\//g, '-') + '_' + today.replace(/\s/g, '-') + '.pdf');
+    }
+
+    function exportExcel() {
+        const year   = $('#filterYear').val()   || null;
+        const sector = $('#filterSector').val() || null;
+        const dept   = $('#filterDept').val()   || null;
+        const fund   = $('#filterFund').val()   || null;
+        const cc     = $('#filterCC').val()     || null;
+        const obj    = $('#filterObj').val()    || null;
+        exportToExcel('/Reports/ExportExcel?reportType=object', { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj });
     }
 
     function clearFilters() {
@@ -454,19 +689,12 @@
         if ($('#filterDept').hasClass('select2-hidden-accessible'))   $('#filterDept').val('').trigger('change.select2');
         if ($('#filterFund').hasClass('select2-hidden-accessible'))   $('#filterFund').val('').trigger('change.select2');
         if ($('#filterCC').hasClass('select2-hidden-accessible'))     $('#filterCC').val('').trigger('change.select2');
+        resetObjDropdown();
         loadSectorDropdown(null);
         loadDeptDropdown(null, null);
         loadFundDropdown(null, null, null);
         loadCCDropdown(null, null);
         loadData();
-    }
-    function exportExcel() {
-        const year   = $('#filterYear').val()   || null;
-        const sector = $('#filterSector').val() || null;
-        const dept   = $('#filterDept').val()   || null;
-        const fund   = $('#filterFund').val()   || null;
-        const cc     = $('#filterCC').val()     || null;
-        exportToExcel('/Reports/ExportExcel?reportType=object', { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc });
     }
 
     function utilClass(pct) {

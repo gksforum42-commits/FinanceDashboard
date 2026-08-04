@@ -23,8 +23,24 @@ namespace FinanceDashboard.ViewModels
         public decimal CapitalAc2Budget { get; set; }
         public decimal DevelopmentBudget { get; set; }
 
+        // Releases per sector
+        public decimal NonDevelopmentRelease { get; set; }
+        public decimal CapitalAc1Release { get; set; }
+        public decimal CapitalAc2Release { get; set; }
+        public decimal DevelopmentRelease { get; set; }
+
+        // Expenditure per sector
+        public decimal NonDevelopmentExpenditure { get; set; }
+        public decimal CapitalAc1Expenditure { get; set; }
+        public decimal CapitalAc2Expenditure { get; set; }
+        public decimal DevelopmentExpenditure { get; set; }
+
         // Supporting stats
-        public long TotalBERRecords { get; set; }
+        public long      TotalBERRecords      { get; set; }
+        public decimal   TotalAllocatedBudget { get; set; }
+        public decimal   TotalExpenditure     { get; set; }
+        public decimal   TotalBalance         { get; set; }
+        public DateTime? BerLastUpdated       { get; set; }
 
         // Derived total across all sectors
         public decimal TotalFinalGrant => NonDevelopmentBudget + CapitalAc1Budget + CapitalAc2Budget + DevelopmentBudget;

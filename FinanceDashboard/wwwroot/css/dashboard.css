@@ -77,8 +77,8 @@
 /* Summary Cards Grid */
 .summary-cards-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(144px, 1fr));
+    gap: 1rem;
     margin-bottom: 1.5rem;
 }
 
@@ -452,3 +452,276 @@
 .timeline-item.success::before { background: var(--success-color); box-shadow: 0 0 0 2px var(--success-color); }
 .timeline-item.danger::before { background: var(--danger-color); box-shadow: 0 0 0 2px var(--danger-color); }
 .timeline-item.warning::before { background: var(--warning-color); box-shadow: 0 0 0 2px var(--warning-color); }
+
+/* ── Card entrance animation ────────────────────────── */
+@keyframes cardFadeUp {
+    from { opacity: 0; transform: translateY(22px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes iconBadge {
+    0%   { transform: scale(1)    rotate(0deg); }
+    60%  { transform: scale(1.12) rotate(-5deg); }
+    100% { transform: scale(1.12) rotate(-5deg); }
+}
+
+.rich-card,
+.total-card {
+    animation: cardFadeUp .45s ease both;
+}
+
+/* stagger the 6 cards */
+.summary-cards-row .rich-card:nth-child(1) { animation-delay: .05s; }
+.summary-cards-row .rich-card:nth-child(2) { animation-delay: .12s; }
+.summary-cards-row .rich-card:nth-child(3) { animation-delay: .19s; }
+.summary-cards-row .rich-card:nth-child(4) { animation-delay: .26s; }
+.totals-row .total-card:nth-child(1)        { animation-delay: .33s; }
+.totals-row .total-card:nth-child(2)        { animation-delay: .40s; }
+
+/* ── Accent custom properties per card variant ──────── */
+.rc-primary { --accent-color: #6b7cff; --accent-bg: rgba(107,124,255,.08); border-top-color: #6b7cff; }
+.rc-info    { --accent-color: #00c9d4; --accent-bg: rgba(0,201,212,.08);   border-top-color: #00c9d4; }
+.rc-success { --accent-color: #28c76f; --accent-bg: rgba(40,199,111,.08);  border-top-color: #28c76f; }
+.rc-warning { --accent-color: #e6a817; --accent-bg: rgba(230,168,23,.08);  border-top-color: #e6a817; }
+.tc-blue    { --accent-color: #0d6efd; --accent-bg: rgba(13,110,253,.07); }
+.tc-red     { --accent-color: #dc3545; --accent-bg: rgba(220,53,69,.07);  }
+
+/* ── Rich Summary Cards ─────────────────────────────── */
+.rich-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 0.96rem 1.04rem 0.8rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+    border-top: 3px solid transparent;
+    transition: transform .35s ease, box-shadow .35s ease, background-color .35s ease;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    will-change: transform, box-shadow, background-color;
+}
+.rich-card:hover {
+    transform: translateY(-4px);
+    background-color: var(--accent-bg);
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--accent-color) 22%, transparent);
+}
+
+/* icon badge: CSS transition for bg; JS triggers the scale+rotate class */
+.rc-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    transition: background-color .35s ease, transform .35s ease;
+}
+.rich-card:hover .rc-icon {
+    background-color: #fff;
+    transform: scale(1.12) rotate(-5deg);
+}
+
+/* divider & progress track lighten on hover */
+.rich-card:hover .rc-divider {
+    background: rgba(255,255,255,.6);
+}
+.rich-card:hover .rc-progress-track {
+    background: rgba(255,255,255,.55);
+}
+
+/* ── Total Summary Cards (2-up row) ─────────────────── */
+.totals-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.846rem;
+}
+
+@media (max-width: 768px) {
+    .totals-row { grid-template-columns: 1fr; }
+}
+
+.total-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 0.878rem 0.945rem 0.743rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+    border: 1px solid #f0f0f0;
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    transition: transform .35s ease, box-shadow .35s ease, background-color .35s ease, border-color .35s ease;
+    will-change: transform, box-shadow, background-color;
+}
+.total-card:hover {
+    transform: translateY(-4px);
+    background-color: var(--accent-bg);
+    border-color: var(--accent-color);
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--accent-color) 20%, transparent);
+}
+
+/* icon badge for total cards */
+.tc-icon {
+    width: 25px; height: 25px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; flex-shrink: 0;
+    transition: background-color .35s ease, transform .35s ease;
+}
+.total-card:hover .tc-icon {
+    background-color: #fff;
+    transform: scale(1.12) rotate(-5deg);
+}
+
+/* divider & progress track lighten on hover */
+.total-card:hover .tc-divider {
+    background: rgba(255,255,255,.6);
+}
+.total-card:hover .tc-progress-track {
+    background: rgba(255,255,255,.55);
+}
+
+/* icon now sits inline to the right of the budget value */
+.rc-budget-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .05rem;
+}
+.rc-budget-row .rc-budget {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+}
+
+.rc-icon-primary { background: rgba(107,124,255,.12); color: #6b7cff; }
+.rc-icon-info    { background: rgba(0,201,212,.12);   color: #00c9d4; }
+.rc-icon-success { background: rgba(40,199,111,.12);  color: #28c76f; }
+.rc-icon-warning { background: rgba(230,168,23,.12);  color: #e6a817; }
+
+.rc-budget {
+    font-size: 1.15rem; font-weight: 700; color: #1a1a2e;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: .1rem;
+}
+
+.rc-label {
+    font-size: .78rem; color: #6c757d; font-weight: 500;
+    text-transform: capitalize; margin-bottom: .35rem;
+}
+
+.rc-divider {
+    height: 1px; background: #f0f0f0;
+    margin: .4rem 0;
+}
+
+.rc-stats {
+    display: flex; gap: .75rem; flex-wrap: wrap;
+}
+
+.rc-stat { flex: 1; min-width: 0; }
+
+.rc-stat-label {
+    font-size: .7rem; color: #9ca3af; font-weight: 500;
+    text-transform: capitalize; margin-bottom: .1rem;
+}
+
+.rc-stat-value {
+    font-size: .82rem; font-weight: 700; color: #374151;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.rc-used-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: .5rem;
+}
+
+.rc-used-label { font-size: .72rem; color: #9ca3af; font-weight: 500; }
+
+.rc-used-pct {
+    font-size: .72rem; font-weight: 700;
+}
+.rc-used-primary { color: #6b7cff; }
+.rc-used-info    { color: #00c9d4; }
+.rc-used-success { color: #28c76f; }
+.rc-used-warning { color: #e6a817; }
+
+.rc-progress-track {
+    height: 4px; background: #f0f0f0; border-radius: 4px;
+    margin-top: .3rem; overflow: hidden;
+}
+.rc-progress-bar {
+    height: 100%; border-radius: 4px;
+    transition: width 1s cubic-bezier(.22,1,.36,1) .35s;
+    width: 0;
+}
+.rc-bar-primary { background: #6b7cff; }
+.rc-bar-info    { background: #00c9d4; }
+.rc-bar-success { background: #28c76f; }
+.rc-bar-warning { background: #e6a817; }
+
+/* header row: title left, icon right */
+.tc-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.tc-title {
+    font-size: .82rem;
+    color: #6c757d;
+    font-weight: 500;
+    margin-bottom: .15rem;
+}
+
+.tc-icon-blue { background: rgba(13,110,253,.10); color: #0d6efd; }
+.tc-icon-red  { background: rgba(220,53,69,.10);   color: #dc3545; }
+
+/* large value */
+.tc-value {
+    font-size: 1.395rem; font-weight: 700; color: #0d6efd;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin: .1rem 0 .45rem;
+}
+.tc-value-red { color: #dc3545; }
+
+/* divider */
+.tc-divider {
+    height: 1px; background: #f0f0f0; margin: .4rem 0;
+}
+
+/* progress label row */
+.tc-progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: .25rem;
+}
+.tc-progress-label {
+    font-size: .78rem; font-weight: 600; color: #374151;
+}
+.tc-progress-pct {
+    font-size: .78rem; font-weight: 700;
+}
+.tc-pct-blue { color: #0d6efd; }
+.tc-pct-red  { color: #dc3545; }
+
+/* progress bar */
+.tc-progress-track {
+    height: 5px; background: #eef0f4; border-radius: 4px;
+    overflow: hidden; margin-bottom: .65rem;
+}
+.tc-progress-bar {
+    height: 100%; border-radius: 4px;
+    transition: width 1s cubic-bezier(.22,1,.36,1) .45s;
+    width: 0;
+}
+.tc-bar-blue { background: #0d6efd; }
+.tc-bar-red  { background: #dc3545; }
+
+/* footer row */
+.tc-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .25rem;
+}
+.tc-footer-left, .tc-footer-right {
+    font-size: .75rem; color: #9ca3af; font-weight: 400;
+}
+

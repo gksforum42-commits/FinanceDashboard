@@ -84,11 +84,12 @@ builder.Services.AddScoped<IClaimsTransformation, IdentityClaimsTransformer>();
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.HttpOnly = true;
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.LoginPath = "/Account/Login";
-    options.LogoutPath = "/Account/Logout";
-    options.AccessDeniedPath = "/Account/AccessDenied";
+    options.Cookie.IsEssential = true;
+    options.ExpireTimeSpan    = TimeSpan.FromDays(30);
     options.SlidingExpiration = true;
+    options.LoginPath         = "/Account/Login";
+    options.LogoutPath        = "/Account/Logout";
+    options.AccessDeniedPath  = "/Account/AccessDenied";
 });
 
 // Authorization policies

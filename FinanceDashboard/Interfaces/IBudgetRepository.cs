@@ -46,6 +46,7 @@ namespace FinanceDashboard.Interfaces
         Task<List<FunctionWiseReportViewModel>> GetFunctionWiseReportAsync(int? financialYear = null, string? keyword = null);
         Task<List<ObjectWiseReportViewModel>> GetObjectWiseReportAsync(int? financialYear = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null, string? sector = null);
         Task<List<ObjectWiseGLDetailViewModel>> GetObjectWiseGLDetailAsync(string detailObject, int? financialYear = null);
+        Task<List<ObjectWiseGroupedViewModel>> GetObjectWiseGroupedAsync(int? financialYear = null, string? sector = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null);
         Task<List<CompleteBudgetReportViewModel>> GetCompleteBudgetReportAsync(FilterViewModel filters, int pageNumber = 1, int pageSize = 50);
         Task<List<BudgetComparisonViewModel>> GetBudgetComparisonAsync(int? financialYear = null);
         Task<List<CostCenterReportItemViewModel>> GetCostCenterReportAsync(int? financialYear = null, string? fundCode = null, string? costCenterCode = null);

@@ -1,0 +1,503 @@
+@{
+    ViewData["Title"] = "Cost Center Detail";
+    var ccCode         = ViewBag.CostCenterCode as string ?? "";
+    var ccName         = ViewBag.CostCenterName as string ?? ccCode;
+    var fundCode       = ViewBag.FundCode       as string ?? "";
+    var fundName       = ViewBag.FundName       as string ?? fundCode;
+    var departmentName = ViewBag.DepartmentName as string ?? "";
+    var financialYear  = ViewBag.FinancialYear;
+    var sector         = ViewBag.Sector         as string ?? "";
+}
+
+<div class="fade-in" id="reportWrapper">
+
+    <!-- Page Header -->
+    <div class="page-header no-print">
+        <div>
+            <h2 class="page-title">
+                <i class="bi bi-card-list me-2"></i>Cost Center Detail
+            </h2>
+            <nav aria-label="breadcrumb" style="font-size:.85rem;">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item text-muted">@departmentName</li>
+                    <li class="breadcrumb-item text-muted">@fundName (@fundCode)</li>
+                    <li class="breadcrumb-item active fw-semibold">@ccName <small class="text-muted fw-normal">(@ccCode)</small></li>
+                </ol>
+            </nav>
+        </div>
+        <div class="page-actions">
+            <a class="btn btn-outline-secondary btn-sm me-1" onclick="history.back()">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+            <button class="btn btn-outline-success btn-sm me-1" onclick="exportExcelReport()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </button>
+            <button class="btn btn-outline-danger btn-sm" onclick="exportPdfReport()">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Print Header -->
+    <div class="print-only mb-3">
+        <h4 class="mb-0">Cost Center Budget Detail</h4>
+        <small class="text-muted">
+            @departmentName &nbsp;|&nbsp; @fundName (@fundCode) &nbsp;|&nbsp; @ccName (@ccCode)
+            @if (financialYear != null) { <text>&nbsp;|&nbsp; Year: @financialYear</text> }
+        </small>
+    </div>
+
+    <!-- Object Code Filter -->
+    <div class="filter-bar no-print">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Object Code</label>
+                <select id="filterObjectCode" class="form-select form-select-sm select2" style="min-width:280px;">
+                    <option value="">All Object Codes</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="applyFilter()">
+                    <i class="bi bi-search me-1"></i>Search
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearFilter()">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Totals Bar -->
+    <div class="totals-banner mb-3 no-print" id="summaryBar" style="display:none!important;">
+        <div class="totals-item"><i class="bi bi-cash-stack text-primary me-1"></i><span class="text-muted me-1">Alloc Budget:</span><strong id="sumAllocated">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-clipboard-check text-info me-1"></i><span class="text-muted me-1">Budget Grant:</span><strong id="sumBudgetGrant">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-arrow-down-circle text-success me-1"></i><span class="text-muted me-1">Releases:</span><strong id="sumReleases">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-receipt text-danger me-1"></i><span class="text-muted me-1">Expenditure:</span><strong id="sumExpenditure">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-piggy-bank text-success me-1"></i><span class="text-muted me-1">Balance:</span><strong id="sumBalance">–</strong></div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="tableLoadingOverlay" style="display:none; text-align:center; padding:60px 0;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-muted">Loading GL detail…</div>
+    </div>
+
+    <!-- GL Detail Table -->
+    <div class="table-container" id="tableContainer" style="overflow-x:auto; display:none;">
+        <table id="glTable" class="table table-bordered table-sm print-table drill-table" style="width:100%; min-width:860px;">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width:34px;"></th>
+                    <th>GL Code / Description</th>
+                    <th class="text-end">Alloc Budget</th>
+                    <th class="text-end">Budget Grant</th>
+                    <th class="text-end">Releases</th>
+                    <th class="text-end">% Rel</th>
+                    <th class="text-end">Expenditure</th>
+                    <th class="text-end">% Util</th>
+                    <th class="text-end">Balance</th>
+                </tr>
+            </thead>
+            <tbody id="glTableBody"></tbody>
+            <tfoot>
+                <tr class="table-secondary fw-bold">
+                    <td></td>
+                    <td>Total</td>
+                    <td class="text-end" id="ftAlloc"></td>
+                    <td class="text-end" id="ftGrant"></td>
+                    <td class="text-end" id="ftRel"></td>
+                    <td class="text-end" id="ftRelPct"></td>
+                    <td class="text-end" id="ftExp"></td>
+                    <td class="text-end" id="ftUtilPct"></td>
+                    <td class="text-end" id="ftBal"></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+    /* ── Drill-down row styles ───────────────────────── */
+    .dr-grp { background:#eef7ee !important; cursor:pointer; }
+    .dr-grp:hover { background:#ddf0dd !important; }
+    .dr-grp td:nth-child(2) {
+        padding-left: 10px !important; font-size:.9rem;
+        font-weight:700; color:#155724;
+    }
+    .dr-gl { background:#fff !important; }
+    .dr-gl td:nth-child(2) {
+        padding-left: 34px !important; font-size:.82rem; color:#333;
+    }
+
+    .toggle-btn { cursor:pointer; user-select:none; color:#0d6efd; font-size:.95em; }
+    .toggle-btn:hover { color:#0a58ca; }
+
+    .pct-badge { display:inline-block; padding:1px 8px; border-radius:12px; font-size:.8rem; font-weight:600; }
+    .pct-danger-bg  { background:#fde8e8; color:#c0392b; }
+    .pct-warning-bg { background:#fff3cd; color:#856404; }
+    .pct-ok-bg      { background:#d4edda; color:#155724; }
+    .pct-danger  { color:#dc3545; font-weight:600; }
+    .pct-warning { color:#fd7e14; font-weight:600; }
+    .pct-ok      { color:#198754; font-weight:600; }
+
+    @@media print {
+        .no-print, .page-header, .filter-bar, .sidebar, nav, header, footer { display:none !important; }
+        .print-only { display:block !important; }
+        body, .main-content, .content-wrapper { margin:0; padding:0; }
+        .table-container { overflow:visible !important; }
+        #glTable { font-size:8pt; width:100% !important; }
+        .toggle-btn { display:none !important; }
+    }
+    .print-only { display:none; }
+    tfoot td { font-weight:700; background:#f8f9fa; }
+</style>
+
+<script>
+    /* ── Page-level constants ─────────────────────────── */
+    const _ccCode    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ccCode));
+    const _ccName    = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ccName));
+    const _fundCode  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(fundCode));
+    const _fundName  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(fundName));
+    const _deptName  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(departmentName));
+    const _initYear  = @Html.Raw(financialYear != null ? financialYear.ToString() : "null");
+    const _initSect  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(sector));
+
+    let _allGLData   = [];   // full GL dataset from server
+    let _expanded    = {};   // grp key → bool
+
+    /* ── Boot ─────────────────────────────────────────── */
+    $(document).ready(function () {
+        // Initialise object code dropdown as disabled until data loads
+        $('#filterObjectCode').select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+        $('#filterObjectCode').prop('disabled', true);
+
+        loadData();
+    });
+
+    /* ── Load GL data ────────────────────────────────── */
+    function loadData() {
+        $('#tableContainer').hide();
+        $('#tableLoadingOverlay').show();
+        _expanded = {};
+
+        const params = { costCenterCode: _ccCode };
+        if (_initYear)  params.financialYear = _initYear;
+        if (_fundCode)  params.fundCode      = _fundCode;
+
+        ajaxGet('/Reports/GetCostCenterGLDetail', params, function (r) {
+            $('#tableLoadingOverlay').hide();
+            if (!r.success || !r.data.length) {
+                showToast('info', 'No GL data found for this cost center.');
+                return;
+            }
+            _allGLData = r.data;
+            populateObjectDropdown(_allGLData);
+            renderTable(_allGLData);
+            $('#tableContainer').show();
+        });
+    }
+
+    /* ── Populate object code dropdown ──────────────── */
+    function populateObjectDropdown(data) {
+        const sel = $('#filterObjectCode');
+        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+        sel.empty().append('<option value="">All Object Codes</option>');
+
+        // Unique GL codes sorted
+        const seen = {};
+        data.forEach(function (g) {
+            if (g.glCode && !seen[g.glCode]) {
+                seen[g.glCode] = true;
+                const label = g.glCode + (g.glDescription ? ' – ' + g.glDescription : '');
+                sel.append('<option value="' + esc(g.glCode) + '">' + esc(label) + '</option>');
+            }
+        });
+
+        sel.prop('disabled', false)
+           .select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+    }
+
+    /* ── Apply / clear filter ────────────────────────── */
+    function applyFilter() {
+        const objCode = $('#filterObjectCode').val() || null;
+        const filtered = objCode
+            ? _allGLData.filter(g => g.glCode === objCode)
+            : _allGLData;
+        _expanded = {};
+        renderTable(filtered);
+    }
+
+    function clearFilter() {
+        $('#filterObjectCode').val('').trigger('change.select2');
+        _expanded = {};
+        renderTable(_allGLData);
+    }
+
+    /* ── Render GL table ─────────────────────────────── */
+    function renderTable(data) {
+        const tbody = $('#glTableBody');
+        tbody.empty();
+        _expanded = {};
+
+        // Split into Salary (A01*) and Non-Salary
+        const salary    = data.filter(g => g.glCode && g.glCode.startsWith('A01'));
+        const nonSalary = data.filter(g => !g.glCode || !g.glCode.startsWith('A01'));
+
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+        data.forEach(function (g) {
+            totA += g.totalAllocatedBudget;
+            totG += g.totalBudgetGrant;
+            totR += g.totalReleases;
+            totE += g.totalActualExpenditure;
+            totB += g.totalBalance;
+        });
+
+        function addGroup(label, items, grpKey) {
+            if (!items.length) return;
+            const s = sumOf(items);
+            const rp = pct(s.rl, s.a);
+            const up = pct(s.ex, s.bg);
+            tbody.append(
+                '<tr class="dr-grp" data-key="' + grpKey + '" onclick="toggleGrp(this,\'' + grpKey + '\')">' +
+                '<td class="text-center toggle-btn" style="pointer-events:none;"><i class="bi bi-chevron-right"></i></td>' +
+                '<td><strong>' + esc(label) + '</strong> <small class="text-muted">(' + items.length + ' codes)</small></td>' +
+                '<td class="text-end">' + fmtC(s.a)  + '</td>' +
+                '<td class="text-end">' + fmtC(s.bg) + '</td>' +
+                '<td class="text-end">' + fmtC(s.rl) + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(rp) + '">' + rp + '%</span></td>' +
+                '<td class="text-end">' + fmtC(s.ex) + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(up) + '">' + up + '%</span></td>' +
+                '<td class="text-end">' + fmtC(s.bl) + '</td>' +
+                '</tr>'
+            );
+            // Store items for lazy expand
+            _glCache[grpKey] = items;
+        }
+
+        addGroup('Salary',     salary,    'sal');
+        addGroup('Non-Salary', nonSalary, 'nsal');
+
+        // Footer totals
+        const trp = pct(totR, totA), tup = pct(totE, totG);
+        $('#ftAlloc').html('<strong>' + fmtC(totA) + '</strong>');
+        $('#ftGrant').html('<strong>' + fmtC(totG) + '</strong>');
+        $('#ftRel').html('<strong>'   + fmtC(totR) + '</strong>');
+        $('#ftRelPct').html('<strong class="' + ucls(trp) + '">' + trp + '%</strong>');
+        $('#ftExp').html('<strong>'   + fmtC(totE) + '</strong>');
+        $('#ftUtilPct').html('<strong class="' + ucls(tup) + '">' + tup + '%</strong>');
+        $('#ftBal').html('<strong>'   + fmtC(totB) + '</strong>');
+
+        // Update summary bar
+        $('#sumAllocated').text(fmtC(totA));
+        $('#sumBudgetGrant').text(fmtC(totG));
+        $('#sumReleases').text(fmtC(totR));
+        $('#sumExpenditure').text(fmtC(totE));
+        $('#sumBalance').text(fmtC(totB));
+        $('#summaryBar').css('display', '');
+    }
+
+    const _glCache = {};
+
+    /* ── Toggle GL Group → individual GL lines ────────── */
+    function toggleGrp(tr, grpKey) {
+        const childKey = 'gl_' + grpKey;
+        const $tr = $(tr);
+
+        if (_expanded[childKey]) {
+            $('[data-parent="' + childKey + '"]').remove();
+            _expanded[childKey] = false;
+            $tr.find('i').removeClass('bi-chevron-down').addClass('bi-chevron-right');
+            return;
+        }
+
+        const items = _glCache[grpKey] || [];
+        if (!items.length) return;
+        _expanded[childKey] = true;
+        $tr.find('i').removeClass('bi-chevron-right').addClass('bi-chevron-down');
+
+        let html = '';
+        items.forEach(function (g) {
+            const rp = pct(g.totalReleases, g.totalAllocatedBudget);
+            const up = pct(g.totalActualExpenditure, g.totalBudgetGrant);
+            html +=
+                '<tr class="dr-gl" data-parent="' + childKey + '">' +
+                '<td></td>' +
+                '<td>' + esc(g.glCode) + (g.glDescription ? ' &ndash; ' + esc(g.glDescription) : '') + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalAllocatedBudget)   + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalBudgetGrant)       + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalReleases)          + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(rp) + '">' + rp + '%</span></td>' +
+                '<td class="text-end">' + fmtC(g.totalActualExpenditure) + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(up) + '">' + up + '%</span></td>' +
+                '<td class="text-end">' + fmtC(g.totalBalance)           + '</td>' +
+                '</tr>';
+        });
+        $tr.after(html);
+    }
+
+    function sumOf(arr) {
+        return arr.reduce((s, g) => ({
+            a:  s.a  + g.totalAllocatedBudget,
+            bg: s.bg + g.totalBudgetGrant,
+            rl: s.rl + g.totalReleases,
+            ex: s.ex + g.totalActualExpenditure,
+            bl: s.bl + g.totalBalance
+        }), { a:0, bg:0, rl:0, ex:0, bl:0 });
+    }
+
+    /* ── PDF Export ──────────────────────────────────── */
+    function exportPdfReport() {
+        const objCode  = $('#filterObjectCode').val() || null;
+        const objLabel = objCode ? ($('#filterObjectCode option:selected').text()) : 'All Object Codes';
+        const filtered = objCode ? _allGLData.filter(g => g.glCode === objCode) : _allGLData;
+
+        if (!filtered.length) {
+            showToast('warning', 'No data to export.');
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const cx    = pageW / 2;
+        const yearLbl = _initYear || 'All Years';
+
+        const _d    = new Date();
+        const _mon  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
+
+        // Header band
+        doc.setFillColor(11, 43, 82);
+        doc.rect(0, 0, pageW, 68, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(255,255,255);
+        doc.text('COST CENTER DETAIL REPORT', cx, 22, { align:'center' });
+        doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(210,220,245);
+        doc.text(_ccName + ' (' + _ccCode + ')', cx, 38, { align:'center' });
+        doc.text('Department: ' + _deptName + '   |   Grant: ' + _fundName + ' (' + _fundCode + ')   |   Year: ' + yearLbl, cx, 51, { align:'center' });
+        doc.text('Object Filter: ' + objLabel + '   |   Generated: ' + today, cx, 62, { align:'center' });
+
+        // Split data into Salary / Non-Salary groups
+        const salary    = filtered.filter(g => g.glCode && g.glCode.startsWith('A01'));
+        const nonSalary = filtered.filter(g => !g.glCode || !g.glCode.startsWith('A01'));
+
+        const body   = [];
+        const styles = {};
+        let idx = 0;
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+
+        function addGroup(label, items) {
+            if (!items.length) return;
+            const s  = sumOf(items);
+            const rp = s.a  > 0 ? (s.rl / s.a  * 100).toFixed(1) + '%' : '0.0%';
+            const up = s.bg > 0 ? (s.ex / s.bg * 100).toFixed(1) + '%' : '0.0%';
+            body.push([label + ' (' + items.length + ' codes)', fmtN(s.a), fmtN(s.bg), fmtN(s.rl), rp, fmtN(s.ex), up, fmtN(s.bl)]);
+            styles[idx++] = { fontStyle:'bold', fillColor:[21,101,51], textColor:[255,255,255] };
+
+            totA += s.a; totG += s.bg; totR += s.rl; totE += s.ex; totB += s.bl;
+
+            items.forEach(function (g) {
+                const rp2 = g.totalAllocatedBudget > 0 ? (g.totalReleases / g.totalAllocatedBudget * 100).toFixed(1) + '%' : '0.0%';
+                const up2 = g.totalBudgetGrant > 0     ? (g.totalActualExpenditure / g.totalBudgetGrant * 100).toFixed(1) + '%' : '0.0%';
+                body.push([
+                    g.glCode + (g.glDescription ? ' – ' + g.glDescription : ''),
+                    fmtN(g.totalAllocatedBudget), fmtN(g.totalBudgetGrant), fmtN(g.totalReleases), rp2,
+                    fmtN(g.totalActualExpenditure), up2, fmtN(g.totalBalance)
+                ]);
+                styles[idx++] = { fillColor:[248,252,248], textColor:[40,40,40] };
+            });
+        }
+
+        addGroup('Salary',     salary);
+        addGroup('Non-Salary', nonSalary);
+
+        // Grand total row
+        const totRp = totA > 0 ? (totR / totA * 100).toFixed(1) + '%' : '0.0%';
+        const totUp = totG > 0 ? (totE / totG * 100).toFixed(1) + '%' : '0.0%';
+        body.push(['GRAND TOTAL', fmtN(totA), fmtN(totG), fmtN(totR), totRp, fmtN(totE), totUp, fmtN(totB)]);
+        styles[idx] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
+
+        doc.autoTable({
+            head: [[
+                { content:'GL CODE / DESCRIPTION',  styles:{ halign:'left'   } },
+                { content:'ALLOC\nBUDGET',           styles:{ halign:'right'  } },
+                { content:'BUDGET\nGRANT',           styles:{ halign:'right'  } },
+                { content:'RELEASES',                styles:{ halign:'right'  } },
+                { content:'% REL',                   styles:{ halign:'center' } },
+                { content:'EXPENDITURE',             styles:{ halign:'right'  } },
+                { content:'% UTIL',                  styles:{ halign:'center' } },
+                { content:'BALANCE',                 styles:{ halign:'right'  } }
+            ]],
+            body:    body,
+            startY:  74,
+            margin:  { left:8, right:8, bottom:28 },
+            tableWidth: pageW - 16,
+            styles:  { fontSize:8, cellPadding:{ top:5, bottom:5, left:5, right:5 }, valign:'middle', lineColor:[215,220,230], lineWidth:0.3 },
+            headStyles: { fillColor:[11,43,82], textColor:[255,255,255], fontStyle:'bold', fontSize:8.5, halign:'center', valign:'middle', minCellHeight:28 },
+            bodyStyles: { halign:'right' },
+            columnStyles: {
+                0: { halign:'left',   cellWidth:360 },
+                1: { halign:'right',  cellWidth:85  },
+                2: { halign:'right',  cellWidth:85  },
+                3: { halign:'right',  cellWidth:80  },
+                4: { halign:'center', cellWidth:58  },
+                5: { halign:'right',  cellWidth:85  },
+                6: { halign:'center', cellWidth:58  },
+                7: { halign:'right',  cellWidth:85  }
+            },
+            didParseCell: function (d) {
+                if (d.section === 'head') return;
+                const s = styles[d.row.index];
+                if (!s) return;
+                if (s.fillColor) d.cell.styles.fillColor = s.fillColor;
+                if (s.textColor) d.cell.styles.textColor = s.textColor;
+                if (s.fontStyle) d.cell.styles.fontStyle = s.fontStyle;
+            },
+            didDrawPage: function (data) {
+                if (data.pageNumber > 1) {
+                    doc.setFillColor(11,43,82); doc.rect(0,0,pageW,26,'F');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(255,255,255);
+                    doc.text('COST CENTER DETAIL (contd.) — ' + _ccCode, cx, 17, { align:'center' });
+                }
+                const pc  = doc.internal.getNumberOfPages();
+                const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                doc.setFillColor(11,43,82); doc.rect(0, pageH-22, pageW, 22, 'F');
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(245,248,252);
+                doc.text(_ccName + ' (' + _ccCode + ')   |   Page ' + cur + ' of ' + pc, cx, pageH-9, { align:'center' });
+            }
+        });
+
+        const safeCC = (_ccName + '_' + _ccCode).replace(/[^a-zA-Z0-9_]/g,'_');
+        const safeObj = objCode ? '_OBJ_' + objCode.replace(/[^a-zA-Z0-9]/g,'_') : '';
+        doc.save('CC_' + safeCC + safeObj + '_' + yearLbl.replace(/\//g,'-') + '.pdf');
+    }
+
+    /* ── Excel Export ────────────────────────────────── */
+    function exportExcelReport() {
+        const qs = new URLSearchParams();
+        qs.set('reportType', 'costcenter');
+        if (_initYear) qs.set('financialYear', _initYear);
+        if (_fundCode) qs.set('fundCode', _fundCode);
+        qs.set('costCenterCode', _ccCode);
+        const objCode = $('#filterObjectCode').val();
+        if (objCode) qs.set('keyword', objCode);
+        window.location.href = '/Reports/ExportExcel?' + qs.toString();
+    }
+
+    /* ── Helpers ─────────────────────────────────────── */
+    function fmtC(v)  { return Math.round(v || 0).toLocaleString(); }
+    function fmtN(v)  { return Math.round(v || 0).toLocaleString(); }
+    function esc(s)   { return $('<span>').text(String(s||'')).html(); }
+    function pct(n,d) { return d > 0 ? (n/d*100).toFixed(1) : '0.0'; }
+    function ucls(p)  { const n=parseFloat(p); return n>=90?'pct-danger':n>=70?'pct-warning':'pct-ok'; }
+    function pctBg(p) { const n=parseFloat(p); return n>=90?'pct-danger-bg':n>=70?'pct-warning-bg':'pct-ok-bg'; }
+    function encodeKey(s) { return String(s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
+</script>
+}

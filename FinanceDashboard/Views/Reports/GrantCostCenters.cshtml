@@ -1,0 +1,874 @@
+@{
+    ViewData["Title"] = "Grant Cost Centers";
+    var departmentName = ViewBag.DepartmentName as string ?? "";
+    var fundCode       = ViewBag.FundCode       as string ?? "";
+    var fundName       = ViewBag.FundName       as string ?? fundCode;
+    var financialYear  = ViewBag.FinancialYear;
+    var sector         = ViewBag.Sector         as string ?? "";
+}
+
+<div class="fade-in" id="reportWrapper">
+
+    <!-- Page Header -->
+    <div class="page-header no-print">
+        <div>
+            <h2 class="page-title">
+                <i class="bi bi-grid-3x3-gap me-2"></i>Grant Cost Centers
+            </h2>
+            <small class="text-muted">
+                Department: <strong>@departmentName</strong> &nbsp;|&nbsp;
+                Grant / Fund: <strong>@fundName (@fundCode)</strong>
+                @if (financialYear != null) { <text>&nbsp;|&nbsp; Year: <strong>@financialYear</strong></text> }
+            </small>
+        </div>
+        <div class="page-actions">
+            <a class="btn btn-outline-secondary btn-sm me-1" onclick="history.back()">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+            <button class="btn btn-outline-success btn-sm me-1" onclick="exportExcelReport()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </button>
+            <button class="btn btn-outline-danger btn-sm" onclick="exportPdfReport()">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Print Header -->
+    <div class="print-only mb-3">
+        <h4 class="mb-0">Grant Cost Centers Report</h4>
+        <small class="text-muted">Department: @departmentName &nbsp;|&nbsp; Grant: @fundName (@fundCode)@(financialYear != null ? " | Year: " + financialYear : "")</small>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar no-print">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Cost Center</label>
+                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:260px;">
+                    <option value="">All Cost Centers</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Object Code</label>
+                <select id="filterObjectCode" class="form-select form-select-sm select2" style="min-width:220px;">
+                    <option value="">All Object Codes</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="applyFilters()">
+                    <i class="bi bi-search me-1"></i>Search
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Totals Bar -->
+    <div class="totals-banner mb-3 no-print" id="summaryBar" style="display:none!important;">
+        <div class="totals-item"><i class="bi bi-cash-stack text-primary me-1"></i><span class="text-muted me-1">Alloc Budget:</span><strong id="sumAllocated">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-clipboard-check text-info me-1"></i><span class="text-muted me-1">Budget Grant:</span><strong id="sumBudgetGrant">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-arrow-down-circle text-success me-1"></i><span class="text-muted me-1">Releases:</span><strong id="sumReleases">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-receipt text-danger me-1"></i><span class="text-muted me-1">Expenditure:</span><strong id="sumExpenditure">–</strong></div>
+        <div class="totals-divider"></div>
+        <div class="totals-item"><i class="bi bi-piggy-bank text-success me-1"></i><span class="text-muted me-1">Balance:</span><strong id="sumBalance">–</strong></div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="tableLoadingOverlay" style="display:none; text-align:center; padding:40px 0;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-muted">Loading...</div>
+    </div>
+
+    <!-- Drill-down Tree Table -->
+    <div class="table-container" id="tableContainer" style="overflow-x:auto; display:none;">
+        <table id="ccTable" class="table table-bordered table-sm print-table drill-table" style="width:100%; min-width:900px;">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width:34px;"></th>
+                    <th>Cost Center</th>
+                    <th class="text-end">Alloc Budget</th>
+                    <th class="text-end">Budget Grant</th>
+                    <th class="text-end">Releases</th>
+                    <th class="text-end">% Rel</th>
+                    <th class="text-end">Expenditure</th>
+                    <th class="text-end">% Util</th>
+                    <th class="text-end">Balance</th>
+                    <th class="text-end no-print">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="ccTableBody"></tbody>
+            <tfoot>
+                <tr class="table-secondary fw-bold">
+                    <td></td>
+                    <td>Total</td>
+                    <td class="text-end" id="ftAlloc"></td>
+                    <td class="text-end" id="ftGrant"></td>
+                    <td class="text-end" id="ftRel"></td>
+                    <td class="text-end" id="ftRelPct"></td>
+                    <td class="text-end" id="ftExp"></td>
+                    <td class="text-end" id="ftUtilPct"></td>
+                    <td class="text-end" id="ftBal"></td>
+                    <td class="no-print"></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+    /* ── Drill-down row styles ──────────────────────────────────────── */
+    .dr-cc  { background:#f0f4ff !important; cursor:pointer; }
+    .dr-cc:hover { background:#dde6ff !important; }
+    .dr-cc td:nth-child(2) { padding-left:8px !important; font-size:.95rem; font-weight:600; color:#1a4fa0; }
+
+    .dr-grp { background:#eef7ee !important; cursor:pointer; }
+    .dr-grp:hover { background:#ddf0dd !important; }
+    .dr-grp td:nth-child(2) { padding-left:28px !important; font-size:.88rem; font-weight:600; color:#155724; }
+
+    .dr-gl  { background:#fff !important; }
+    .dr-gl td:nth-child(2) { padding-left:46px !important; font-size:.82rem; color:#444; }
+
+    .toggle-btn { cursor:pointer; user-select:none; color:#0d6efd; font-size:.95em; }
+    .toggle-btn:hover { color:#0a58ca; }
+
+    .pct-badge { display:inline-block; padding:1px 8px; border-radius:12px; font-size:.8rem; font-weight:600; }
+    .pct-danger-bg  { background:#fde8e8; color:#c0392b; }
+    .pct-warning-bg { background:#fff3cd; color:#856404; }
+    .pct-ok-bg      { background:#d4edda; color:#155724; }
+    .pct-danger  { color:#dc3545; font-weight:600; }
+    .pct-warning { color:#fd7e14; font-weight:600; }
+    .pct-ok      { color:#198754; font-weight:600; }
+
+    @@media print {
+        .no-print, .page-header, .filter-bar, .sidebar, nav, header, footer { display:none !important; }
+        .print-only { display:block !important; }
+        body, .main-content, .content-wrapper { margin:0; padding:0; }
+        .table-container { overflow:visible !important; }
+        #ccTable { font-size:8pt; width:100% !important; }
+        .toggle-btn { display:none !important; }
+    }
+    .print-only { display:none; }
+    tfoot td { font-weight:700; background:#f8f9fa; }
+</style>
+<script>
+    /* ═══════════════════════════════════════════════════════════════
+       Page-level state (passed from server)
+    ═══════════════════════════════════════════════════════════════ */
+    const _deptName  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(departmentName));
+    const _fundCode  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(fundCode));
+    const _fundName  = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(fundName));
+    const _initYear  = @Html.Raw(financialYear != null ? financialYear.ToString() : "null");
+    const _initSector= @Html.Raw(System.Text.Json.JsonSerializer.Serialize(sector));
+
+    let _ccData    = [];
+    let _expanded  = {};
+    const _glCache = {};
+
+    /* ═══════════════════════════════════════════════════════════════
+       Boot
+    ═══════════════════════════════════════════════════════════════ */
+    $(document).ready(function () {
+        $('#filterCC').select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+        resetObjectCodeDropdown(); // start disabled
+
+        // When CC changes, reload object code dropdown from server
+        $('#filterCC').on('change', function () {
+            const ccCode = $(this).val();
+            resetObjectCodeDropdown();
+            if (!ccCode) return;
+            ajaxGet('/Reports/GetObjectCodeLookup',
+                { costCenterCode: ccCode, financialYear: _initYear || null, fundCode: _fundCode },
+                function (r) {
+                    if (!r.success || !r.data.length) return;
+                    const sel = $('#filterObjectCode');
+                    if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+                    sel.empty().append('<option value="">All Object Codes</option>');
+                    r.data.forEach(function (item) {
+                        sel.append('<option value="' + esc(item.value) + '">' + item.text + '</option>');
+                    });
+                    sel.prop('disabled', false)
+                       .select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+                }
+            );
+        });
+
+        loadData();
+    });
+
+    function resetObjectCodeDropdown() {
+        const sel = $('#filterObjectCode');
+        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+        sel.val('').empty().append('<option value="">All Object Codes</option>');
+        sel.prop('disabled', true)
+           .select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Load cost centers
+    ═══════════════════════════════════════════════════════════════ */
+    function loadData(ccFilter, objFilter) {
+        $('#tableContainer').hide();
+        $('#tableLoadingOverlay').show();
+        _expanded = {};
+
+        const params = {
+            departmentName: _deptName,
+            fundCode:       _fundCode
+        };
+        if (_initYear)   params.financialYear  = _initYear;
+        if (_initSector) params.sector         = _initSector;
+        if (ccFilter)    params.costCenterCode = ccFilter;
+
+        ajaxGet('/Reports/GetGrantCostCentersData', params, function (r) {
+            $('#tableLoadingOverlay').hide();
+            if (r.success) {
+                _ccData = r.data;
+                renderCCRows(_ccData, objFilter || null);
+                updateSummary(_ccData);
+                populateCCDropdown(_ccData);
+                $('#tableContainer').show();
+                // If a CC was selected and GL cache already loaded, re-filter visible GL rows
+                if (objFilter && ccFilter) highlightObjectInTable(ccFilter, objFilter);
+            } else {
+                showToast('error', r.message || 'Failed to load data.');
+            }
+        });
+    }
+
+    // After table is rendered, expand the matching CC and show only the selected object code GL rows
+    function highlightObjectInTable(ccCode, objCode) {
+        const $ccRow = $('#ccTableBody tr.dr-cc[data-cc="' + ccCode + '"]');
+        if (!$ccRow.length) return;
+        const ccKey   = encodeKey(ccCode);
+        const cellEl  = $ccRow.find('.toggle-btn')[0];
+        if (!cellEl) return;
+
+        // Expand the CC row to load GL data, then filter
+        toggleCC(cellEl, ccKey, function afterExpand() {
+            // Hide all GL group rows and GL lines that don't match
+            const grpKey1 = 'grp_' + ccKey;
+            $('[data-parent="' + grpKey1 + '"]').each(function () {
+                const $grp = $(this);
+                const gk   = $grp.data('key') || '';
+                // Expand the group if not expanded
+                const grpCell = $grp.find('.toggle-btn')[0];
+                if (grpCell) toggleGrp(grpCell, gk);
+
+                // Check if any item in this group matches objCode
+                const hasMatch = (_glCache[gk] || []).some(g => g.glCode === objCode);
+                if (!hasMatch) {
+                    $grp.hide();
+                    $('[data-parent="gl_' + gk + '"]').hide();
+                } else {
+                    // Hide non-matching GL lines
+                    $('[data-parent="gl_' + gk + '"]').each(function () {
+                        const $gl   = $(this);
+                        const glTxt = $gl.find('td').eq(1).text().trim();
+                        if (!glTxt.startsWith(objCode)) $gl.hide();
+                    });
+                }
+            });
+        });
+    }
+
+    function applyFilters() {
+        const ccFilter  = $('#filterCC').val()         || null;
+        const objFilter = $('#filterObjectCode').val() || null;
+
+        // Always reload table with CC filter first
+        loadData(ccFilter, objFilter);
+    }
+
+    function clearFilters() {
+        $('#filterCC').val('').trigger('change.select2');
+        resetObjectCodeDropdown();
+        loadData();
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Render Level 1 — Cost Centers
+    ═══════════════════════════════════════════════════════════════ */
+    function renderCCRows(data) {
+        const tbody = $('#ccTableBody');
+        tbody.empty();
+
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+        data.forEach(function (cc) {
+            totA += cc.totalAllocatedBudget;
+            totG += cc.totalBudgetGrant;
+            totR += cc.totalReleases;
+            totE += cc.totalActualExpenditure;
+            totB += cc.totalBalance;
+
+            const rp  = pct(cc.totalReleases, cc.totalAllocatedBudget);
+            const up  = pct(cc.totalActualExpenditure, cc.totalBudgetGrant);
+            const ck  = 'grp_' + encodeKey(cc.fundCenterCode);
+
+            tbody.append(
+                '<tr class="dr-cc" style="cursor:pointer;" data-cc="' + esc(cc.fundCenterCode) + '" data-ccname="' + esc(cc.costCenterDescription || cc.fundCenterCode) + '" onclick="openCostCenterDetail(\'' + esc(cc.fundCenterCode) + '\',\'' + esc(cc.costCenterDescription || cc.fundCenterCode) + '\')">' +
+                '<td class="text-center text-primary" style="font-size:.9em;"><i class="bi bi-box-arrow-up-right"></i></td>' +
+                '<td>' +
+                  '<strong>' + esc(cc.costCenterDescription || cc.fundCenterCode) + '</strong>' +
+                  ' <small class="text-muted">(' + esc(cc.fundCenterCode) + ')</small>' +
+                  ' <small class="text-primary ms-2 no-print"><i class="bi bi-box-arrow-up-right me-1"></i>View Detail</small>' +
+                '</td>' +
+                '<td class="text-end">' + fmtC(cc.totalAllocatedBudget) + '</td>' +
+                '<td class="text-end">' + fmtC(cc.totalBudgetGrant) + '</td>' +
+                '<td class="text-end">' + fmtC(cc.totalReleases) + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(rp) + '">' + rp + '%</span></td>' +
+                '<td class="text-end">' + fmtC(cc.totalActualExpenditure) + '</td>' +
+                '<td class="text-end"><span class="pct-badge ' + pctBg(up) + '">' + up + '%</span></td>' +
+                '<td class="text-end">' + fmtC(cc.totalBalance) + '</td>' +
+                '<td class="text-end no-print">' +
+                  '<button class="btn btn-primary btn-sm py-0 px-2 me-1" style="font-size:.72em;" onclick="event.stopPropagation();openCostCenterDetail(\'' + esc(cc.fundCenterCode) + '\',\'' + esc(cc.costCenterDescription || cc.fundCenterCode) + '\')" title="Open Detail"><i class="bi bi-box-arrow-up-right me-1"></i>Detail</button>' +
+                  '<button class="btn btn-danger btn-sm py-0 px-2" style="font-size:.72em;" onclick="event.stopPropagation();downloadCCPdf(\'' + esc(cc.fundCenterCode) + '\')" title="PDF"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>' +
+                '</td>' +
+                '</tr>'
+            );
+        });
+
+        const trp = pct(totR, totA), tup = pct(totE, totG);
+        $('#ftAlloc').html('<strong>' + fmtC(totA) + '</strong>');
+        $('#ftGrant').html('<strong>' + fmtC(totG) + '</strong>');
+        $('#ftRel').html('<strong>'   + fmtC(totR) + '</strong>');
+        $('#ftRelPct').html('<strong class="' + ucls(trp) + '">' + trp + '%</strong>');
+        $('#ftExp').html('<strong>'   + fmtC(totE) + '</strong>');
+        $('#ftUtilPct').html('<strong class="' + ucls(tup) + '">' + tup + '%</strong>');
+        $('#ftBal').html('<strong>'   + fmtC(totB) + '</strong>');
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Populate CC dropdown from loaded data
+    ═══════════════════════════════════════════════════════════════ */
+    function populateCCDropdown(data) {
+        const sel = $('#filterCC');
+        const cur = sel.val();
+        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+        sel.empty().append('<option value="">All Cost Centers</option>');
+        data.forEach(function (cc) {
+            const label = (cc.costCenterDescription || cc.fundCenterCode) + ' (' + cc.fundCenterCode + ')';
+            sel.append('<option value="' + esc(cc.fundCenterCode) + '">' + label + '</option>');
+        });
+        sel.select2({ theme: 'bootstrap-5', allowClear: true, width: '100%' });
+        if (cur) sel.val(cur).trigger('change');
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Toggle: CC → GL Groups (Salary / Non-Salary)
+    ═══════════════════════════════════════════════════════════════ */
+    function toggleCC(cell, ccKey, afterExpand) {
+        const ccRow    = $(cell).closest('tr');
+        const ccCode   = ccRow.data('cc');
+        const childKey = 'grp_' + ccKey;
+
+        if (_expanded[childKey]) {
+            collapseChildren(childKey);
+            _expanded[childKey] = false;
+            $(cell).find('i').removeClass('bi-chevron-down').addClass('bi-chevron-right');
+            return;
+        }
+
+        $(cell).html('<span class="spinner-border spinner-border-sm text-primary"></span>');
+        ajaxGet('/Reports/GetCostCenterGLDetail',
+            { costCenterCode: ccCode, financialYear: _initYear || null, fundCode: _fundCode },
+            function (r) {
+                $(cell).html('<i class="bi bi-chevron-down"></i>');
+                if (!r.success || !r.data.length) { showToast('info', 'No GL codes found.'); return; }
+                _expanded[childKey] = true;
+
+                const salary    = r.data.filter(g => g.glCode && g.glCode.startsWith('A01'));
+                const nonSalary = r.data.filter(g => !g.glCode || !g.glCode.startsWith('A01'));
+
+                const sumRow = function (arr) {
+                    return arr.reduce((s, g) => ({
+                        a: s.a + g.totalAllocatedBudget, bg: s.bg + g.totalBudgetGrant,
+                        rl: s.rl + g.totalReleases, ex: s.ex + g.totalActualExpenditure, bl: s.bl + g.totalBalance
+                    }), { a:0, bg:0, rl:0, ex:0, bl:0 });
+                };
+
+                let html = '';
+
+                function addGroup(label, items, grpKey) {
+                    if (!items.length) return;
+                    const s  = sumRow(items);
+                    const rp = pct(s.rl, s.a);
+                    const up = pct(s.ex, s.bg);
+                    html +=
+                        '<tr class="dr-grp" data-parent="' + childKey + '" data-key="' + grpKey + '">' +
+                        '<td class="text-center toggle-btn" onclick="toggleGrp(this,\'' + grpKey + '\')"><i class="bi bi-chevron-right"></i></td>' +
+                        '<td><strong>' + label + '</strong> <small class="text-muted">(' + items.length + ' codes)</small></td>' +
+                        '<td class="text-end">' + fmtC(s.a)  + '</td>' +
+                        '<td class="text-end">' + fmtC(s.bg) + '</td>' +
+                        '<td class="text-end">' + fmtC(s.rl) + '</td>' +
+                        '<td class="text-end ' + ucls(rp) + '">' + rp + '%</td>' +
+                        '<td class="text-end text-primary">' + fmtC(s.ex) + '</td>' +
+                        '<td class="text-end ' + ucls(up) + '">' + up + '%</td>' +
+                        '<td class="text-end">' + fmtC(s.bl) + '</td>' +
+                        '<td class="no-print"></td>' +
+                        '</tr>';
+                    _glCache[grpKey] = items;
+                }
+
+                addGroup('Salary',     salary,    'sal_'  + ccKey);
+                addGroup('Non-Salary', nonSalary, 'nsal_' + ccKey);
+
+                ccRow.after(html);
+                if (typeof afterExpand === 'function') afterExpand();
+            }
+        );
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Toggle: GL Group → Individual GL lines
+    ═══════════════════════════════════════════════════════════════ */
+    function toggleGrp(cell, grpKey) {
+        const grpRow   = $(cell).closest('tr');
+        const childKey = 'gl_' + grpKey;
+
+        if (_expanded[childKey]) {
+            $('[data-parent="' + childKey + '"]').remove();
+            _expanded[childKey] = false;
+            $(cell).find('i').removeClass('bi-chevron-down').addClass('bi-chevron-right');
+            return;
+        }
+
+        const items = _glCache[grpKey] || [];
+        if (!items.length) return;
+        _expanded[childKey] = true;
+        $(cell).find('i').removeClass('bi-chevron-right').addClass('bi-chevron-down');
+
+        let html = '';
+        items.forEach(function (g) {
+            const rp = pct(g.totalReleases, g.totalAllocatedBudget);
+            const up = pct(g.totalActualExpenditure, g.totalBudgetGrant);
+            html +=
+                '<tr class="dr-gl" data-parent="' + childKey + '">' +
+                '<td></td>' +
+                '<td>' + esc(g.glCode) + (g.glDescription ? ' – ' + esc(g.glDescription) : '') + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalAllocatedBudget)   + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalBudgetGrant)       + '</td>' +
+                '<td class="text-end">' + fmtC(g.totalReleases)          + '</td>' +
+                '<td class="text-end ' + ucls(rp) + '">' + rp + '%</td>' +
+                '<td class="text-end text-primary">' + fmtC(g.totalActualExpenditure) + '</td>' +
+                '<td class="text-end ' + ucls(up) + '">' + up + '%</td>' +
+                '<td class="text-end">' + fmtC(g.totalBalance)           + '</td>' +
+                '<td class="no-print"></td>' +
+                '</tr>';
+        });
+        grpRow.after(html);
+    }
+
+    function collapseChildren(parentKey) {
+        $('[data-parent="' + parentKey + '"]').each(function () {
+            const ck = $(this).data('key');
+            if (ck) collapseChildren(ck);
+        });
+        $('[data-parent="' + parentKey + '"]').remove();
+    }
+
+    function rowToggleCC(tr, ccKey) {
+        const cell = tr.querySelector('.toggle-btn');
+        if (cell) toggleCC(cell, ccKey);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Summary bar
+    ═══════════════════════════════════════════════════════════════ */
+    function updateSummary(data) {
+        if (!data.length) { $('#summaryBar').hide(); return; }
+        const a = data.reduce((s, r) => ({
+            al: s.al + r.totalAllocatedBudget, bg: s.bg + r.totalBudgetGrant,
+            rl: s.rl + r.totalReleases,        ex: s.ex + r.totalActualExpenditure,
+            bl: s.bl + r.totalBalance
+        }), { al:0, bg:0, rl:0, ex:0, bl:0 });
+        $('#sumAllocated').text(fmtC(a.al));
+        $('#sumBudgetGrant').text(fmtC(a.bg));
+        $('#sumReleases').text(fmtC(a.rl));
+        $('#sumExpenditure').text(fmtC(a.ex));
+        $('#sumBalance').text(fmtC(a.bl));
+        $('#summaryBar').css('display', '');
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PDF — full visible table
+    ═══════════════════════════════════════════════════════════════ */
+    function exportPdfReport() {
+        const objFilter = $('#filterObjectCode').val() || null;
+        const ccFilter  = $('#filterCC').val()         || null;
+
+        if (objFilter) {
+            // ── Object-code filtered PDF: built from _glCache data directly ──────
+            exportPdfForObjectCode(ccFilter, objFilter);
+            return;
+        }
+
+        // ── Standard PDF: collect all visible rows from the DOM ───────────────
+        const { jsPDF } = window.jspdf;
+        const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const cx    = pageW / 2;
+
+        const _d    = new Date();
+        const _mon  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
+        const yearLbl = _initYear || 'All Years';
+
+        doc.setFillColor(11, 43, 82);
+        doc.rect(0, 0, pageW, 56, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.setTextColor(255, 255, 255);
+        doc.text('GRANT COST CENTERS REPORT', cx, 22, { align: 'center' });
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(210, 220, 245);
+        doc.text('Department: ' + _deptName + '   |   Grant: ' + _fundName + ' (' + _fundCode + ')   |   Year: ' + yearLbl + '   |   Generated: ' + today, cx, 40, { align: 'center' });
+
+        const body   = [];
+        const styles = {};
+        let idx = 0;
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+
+        $('#ccTableBody tr:visible').each(function () {
+            const $tr   = $(this);
+            const cls   = $tr.attr('class') || '';
+            const cells = [];
+            $tr.find('td').each(function (ci) {
+                if (ci === 0) return;                           // skip chevron
+                if ($tr.hasClass('dr-cc') && ci === 9) return;  // skip Actions col
+                cells.push($(this).text().trim());
+            });
+            if (!cells.length) return;
+
+            if (cls.includes('dr-cc')) {
+                totA += parseFloat((cells[1]||'0').replace(/,/g,''))||0;
+                totG += parseFloat((cells[2]||'0').replace(/,/g,''))||0;
+                totR += parseFloat((cells[3]||'0').replace(/,/g,''))||0;
+                totE += parseFloat((cells[5]||'0').replace(/,/g,''))||0;
+                totB += parseFloat((cells[7]||'0').replace(/,/g,''))||0;
+            }
+            body.push(cells);
+            if      (cls.includes('dr-cc'))  styles[idx] = { fontStyle:'bold', fillColor:[224,235,255], textColor:[11,43,82] };
+            else if (cls.includes('dr-grp')) styles[idx] = { fontStyle:'bold', fillColor:[224,245,224], textColor:[20,70,20] };
+            else if (cls.includes('dr-gl'))  styles[idx] = { fillColor:[255,255,255], textColor:[70,70,70], fontSize:7 };
+            idx++;
+        });
+
+        const fmtT  = v => Math.round(v).toLocaleString();
+        const totRp = totA > 0 ? (totR/totA*100).toFixed(1)+'%' : '0.0%';
+        const totUp = totG > 0 ? (totE/totG*100).toFixed(1)+'%' : '0.0%';
+        body.push(['GRAND TOTAL', fmtT(totA), fmtT(totG), fmtT(totR), totRp, fmtT(totE), totUp, fmtT(totB)]);
+        styles[idx] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
+
+        renderPdfTable(doc, pageW, pageH, cx, yearLbl, today, body, styles);
+        doc.save('GrantCC_' + _fundCode + '_' + yearLbl.replace(/\//g,'-') + '.pdf');
+    }
+
+    /* Build a PDF showing only the selected object code, grouped by cost center */
+    function exportPdfForObjectCode(ccFilter, objCode) {
+        const yearLbl = _initYear || 'All Years';
+        const _d    = new Date();
+        const _mon  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
+
+        // Resolve object code label from dropdown
+        const objLabel = $('#filterObjectCode option:selected').text() || objCode;
+
+        // Determine which CC rows to scan: selected CC only, or all
+        const $ccRows = ccFilter
+            ? $('#ccTableBody tr.dr-cc[data-cc="' + ccFilter + '"]')
+            : $('#ccTableBody tr.dr-cc');
+
+        if (!$ccRows.length) {
+            showToast('warning', 'No cost center rows found. Load data first.');
+            return;
+        }
+
+        // Collect matching GL items from _glCache for each CC
+        const sections = [];
+        $ccRows.each(function () {
+            const $ccRow = $(this);
+            const ccCode = $ccRow.data('cc') || '';
+            const ccName = $ccRow.data('ccname') || ccCode;
+            const ccKey  = encodeKey(ccCode);
+            const matchingItems = [];
+            ['sal_' + ccKey, 'nsal_' + ccKey].forEach(function (gk) {
+                (_glCache[gk] || []).forEach(function (g) {
+                    if (g.glCode === objCode) matchingItems.push(g);
+                });
+            });
+            if (matchingItems.length) sections.push({ ccCode, ccName, items: matchingItems });
+        });
+
+        if (!sections.length) {
+            showToast('warning', 'No data found for object code "' + objCode + '". Expand the cost center rows first so data loads, then export.');
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const cx    = pageW / 2;
+
+        // Header
+        doc.setFillColor(11, 43, 82);
+        doc.rect(0, 0, pageW, 62, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(255,255,255);
+        doc.text('GRANT COST CENTERS REPORT — OBJECT CODE FILTER', cx, 22, { align:'center' });
+        doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(210,220,245);
+        doc.text('Department: ' + _deptName + '   |   Grant: ' + _fundName + ' (' + _fundCode + ')   |   Year: ' + yearLbl, cx, 38, { align:'center' });
+        doc.text('Object Code: ' + objLabel + '   |   Generated: ' + today, cx, 52, { align:'center' });
+
+        const body   = [];
+        const styles = {};
+        let idx = 0;
+        let totA=0, totG=0, totR=0, totE=0, totB=0;
+
+        sections.forEach(function (sec) {
+            // CC header row
+            const ccTotals = sec.items.reduce((s,g) => ({
+                a:  s.a  + g.totalAllocatedBudget, bg: s.bg + g.totalBudgetGrant,
+                rl: s.rl + g.totalReleases,        ex: s.ex + g.totalActualExpenditure, bl: s.bl + g.totalBalance
+            }), { a:0, bg:0, rl:0, ex:0, bl:0 });
+            const ccRp = pct(ccTotals.rl, ccTotals.a);
+            const ccUp = pct(ccTotals.ex, ccTotals.bg);
+            body.push([sec.ccName + ' (' + sec.ccCode + ')',
+                fmtN(ccTotals.a), fmtN(ccTotals.bg), fmtN(ccTotals.rl), ccRp+'%',
+                fmtN(ccTotals.ex), ccUp+'%', fmtN(ccTotals.bl)]);
+            styles[idx++] = { fontStyle:'bold', fillColor:[224,235,255], textColor:[11,43,82] };
+
+            // GL detail rows for this object code
+            sec.items.forEach(function (g) {
+                const rp = pct(g.totalReleases, g.totalAllocatedBudget);
+                const up = pct(g.totalActualExpenditure, g.totalBudgetGrant);
+                body.push([g.glCode + (g.glDescription ? ' – ' + g.glDescription : ''),
+                    fmtN(g.totalAllocatedBudget), fmtN(g.totalBudgetGrant), fmtN(g.totalReleases), rp+'%',
+                    fmtN(g.totalActualExpenditure), up+'%', fmtN(g.totalBalance)]);
+                styles[idx++] = { fillColor:[255,255,255], textColor:[50,50,50], fontSize:7 };
+            });
+
+            totA += ccTotals.a;  totG += ccTotals.bg;
+            totR += ccTotals.rl; totE += ccTotals.ex; totB += ccTotals.bl;
+        });
+
+        const fmtT  = v => Math.round(v).toLocaleString();
+        const totRp = totA > 0 ? (totR/totA*100).toFixed(1)+'%' : '0.0%';
+        const totUp = totG > 0 ? (totE/totG*100).toFixed(1)+'%' : '0.0%';
+        body.push(['GRAND TOTAL', fmtT(totA), fmtT(totG), fmtT(totR), totRp, fmtT(totE), totUp, fmtT(totB)]);
+        styles[idx] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
+
+        renderPdfTable(doc, pageW, pageH, cx, yearLbl, today, body, styles, 68);
+        const safeObj = objCode.replace(/[^a-zA-Z0-9]/g,'_');
+        doc.save('GrantCC_' + _fundCode + '_OBJ_' + safeObj + '_' + yearLbl.replace(/\//g,'-') + '.pdf');
+    }
+
+    /* Shared autoTable renderer */
+    function renderPdfTable(doc, pageW, pageH, cx, yearLbl, today, body, styles, startY) {
+        startY = startY || 62;
+        doc.autoTable({
+            head: [[
+                { content: 'COST CENTER / GL DESCRIPTION', styles: { halign:'left'   } },
+                { content: 'ALLOC\nBUDGET',               styles: { halign:'right'  } },
+                { content: 'BUDGET\nGRANT',               styles: { halign:'right'  } },
+                { content: 'RELEASES',                    styles: { halign:'right'  } },
+                { content: '% REL',                       styles: { halign:'center' } },
+                { content: 'EXPENDITURE',                 styles: { halign:'right'  } },
+                { content: '% UTIL',                      styles: { halign:'center' } },
+                { content: 'BALANCE',                     styles: { halign:'right'  } }
+            ]],
+            body: body,
+            startY: startY,
+            margin: { left: 8, right: 8, bottom: 24 },
+            tableWidth: pageW - 16,
+            styles: { fontSize:8, cellPadding:{ top:6, bottom:6, left:5, right:5 }, valign:'middle', lineColor:[220,225,235], lineWidth:0.3 },
+            headStyles: { fillColor:[11,43,82], textColor:[255,255,255], fontStyle:'bold', fontSize:8, halign:'center', valign:'middle', minCellHeight:28 },
+            bodyStyles: { halign:'right' },
+            columnStyles: {
+                0: { halign:'left',   cellWidth:340 },
+                1: { halign:'right',  cellWidth:90 },
+                2: { halign:'right',  cellWidth:90 },
+                3: { halign:'right',  cellWidth:85 },
+                4: { halign:'center', cellWidth:60 },
+                5: { halign:'right',  cellWidth:90 },
+                6: { halign:'center', cellWidth:60 },
+                7: { halign:'right',  cellWidth:90 }
+            },
+            didParseCell: function (d) {
+                if (d.section === 'head') return;
+                const s = styles[d.row.index];
+                if (!s) return;
+                if (s.fillColor) d.cell.styles.fillColor = s.fillColor;
+                if (s.textColor) d.cell.styles.textColor = s.textColor;
+                if (s.fontStyle) d.cell.styles.fontStyle = s.fontStyle;
+                if (s.fontSize)  d.cell.styles.fontSize  = s.fontSize;
+            },
+            didDrawPage: function (data) {
+                if (data.pageNumber > 1) {
+                    doc.setFillColor(11,43,82); doc.rect(0,0,pageW,28,'F');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(255,255,255);
+                    doc.text('GRANT COST CENTERS REPORT (contd.)', cx, 18, { align:'center' });
+                }
+                const pc  = doc.internal.getNumberOfPages();
+                const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                doc.setFillColor(11,43,82); doc.rect(0, pageH-22, pageW, 22, 'F');
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(245,248,252);
+                doc.text(_fundName + ' (' + _fundCode + ')   |   Page ' + cur + ' of ' + pc, cx, pageH-9, { align:'center' });
+            }
+        });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PDF — single cost center
+    ═══════════════════════════════════════════════════════════════ */
+    function downloadCCPdf(ccCode) {
+        const yearLbl = _initYear || 'All Years';
+        const $ccRow  = $('#ccTableBody tr.dr-cc[data-cc="' + ccCode + '"]');
+        if (!$ccRow.length) { showToast('error', 'Cost Center row not found.'); return; }
+        const ccName  = $ccRow.data('ccname') || ccCode;
+
+        ajaxGet('/Reports/GetCostCenterGLDetail',
+            { costCenterCode: ccCode, financialYear: _initYear || null, fundCode: _fundCode },
+            function (r) {
+                const { jsPDF } = window.jspdf;
+                const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+                const pageW = doc.internal.pageSize.getWidth();
+                const pageH = doc.internal.pageSize.getHeight();
+                const cx    = pageW / 2;
+                const today = new Date().toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' });
+
+                doc.setFillColor(13,71,161); doc.rect(0,0,pageW,38,'F');
+                doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(255,255,255);
+                doc.text('Cost Center Budget Report', cx, 16, { align:'center' });
+                doc.setFontSize(9);
+                doc.text(ccName + '  (' + ccCode + ')', cx, 29, { align:'center' });
+                doc.setDrawColor(13,71,161); doc.setLineWidth(0.5); doc.line(20,46,pageW-20,46);
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(40,40,40);
+                doc.text('Dept: ' + _deptName + '   |   Grant: ' + _fundName + ' (' + _fundCode + ')   |   Year: ' + yearLbl + '   |   Generated: ' + today, cx, 56, { align:'center' });
+
+                const cc = {
+                    a:  parseFloat($ccRow.find('td').eq(2).text().replace(/,/g,''))||0,
+                    g:  parseFloat($ccRow.find('td').eq(3).text().replace(/,/g,''))||0,
+                    rl: parseFloat($ccRow.find('td').eq(4).text().replace(/,/g,''))||0,
+                    ex: parseFloat($ccRow.find('td').eq(6).text().replace(/,/g,''))||0,
+                    bl: parseFloat($ccRow.find('td').eq(8).text().replace(/,/g,''))||0
+                };
+                const rp = cc.a > 0 ? (cc.rl/cc.a*100).toFixed(1)+'%' : '0.0%';
+                const up = cc.g > 0 ? (cc.ex/cc.g*100).toFixed(1)+'%' : '0.0%';
+
+                const headers = [['GL Code','GL Description','Alloc Budget','Budget Grant','Releases','% Rel','Expenditure','% Util','Balance']];
+                const body    = [];
+                const styles  = {};
+                let idx = 0;
+
+                body.push([ccName + ' (' + ccCode + ')', '', fmtN(cc.a), fmtN(cc.g), fmtN(cc.rl), rp, fmtN(cc.ex), up, fmtN(cc.bl)]);
+                styles[idx++] = { fillColor:[13,71,161], textColor:[255,255,255], fontStyle:'bold' };
+
+                if (r.success && r.data.length) {
+                    const salary    = r.data.filter(g => g.glCode && g.glCode.startsWith('A01'));
+                    const nonSalary = r.data.filter(g => !g.glCode || !g.glCode.startsWith('A01'));
+
+                    function addGroup(label, items) {
+                        if (!items.length) return;
+                        const s = items.reduce((acc, g) => ({
+                            a:  acc.a  + g.totalAllocatedBudget, g:  acc.g  + g.totalBudgetGrant,
+                            rl: acc.rl + g.totalReleases,        ex: acc.ex + g.totalActualExpenditure, bl: acc.bl + g.totalBalance
+                        }), { a:0, g:0, rl:0, ex:0, bl:0 });
+                        const rp = s.a > 0 ? (s.rl/s.a*100).toFixed(1)+'%' : '0.0%';
+                        const up = s.g > 0 ? (s.ex/s.g*100).toFixed(1)+'%' : '0.0%';
+                        body.push([label, '', fmtN(s.a), fmtN(s.g), fmtN(s.rl), rp, fmtN(s.ex), up, fmtN(s.bl)]);
+                        styles[idx++] = { fillColor:[21,101,51], textColor:[255,255,255], fontStyle:'bold' };
+                        items.forEach(function (g) {
+                            const grp = g.totalAllocatedBudget, gbg = g.totalBudgetGrant;
+                            const grp2 = g.totalReleases, gex = g.totalActualExpenditure, gbl = g.totalBalance;
+                            const gr = grp > 0 ? (grp2/grp*100).toFixed(1)+'%' : '0.0%';
+                            const gu = gbg > 0 ? (gex/gbg*100).toFixed(1)+'%'  : '0.0%';
+                            body.push([g.glCode||'', g.glDescription||'', fmtN(grp), fmtN(gbg), fmtN(grp2), gr, fmtN(gex), gu, fmtN(gbl)]);
+                            styles[idx++] = { fillColor:[245,250,245], textColor:[30,30,30] };
+                        });
+                    }
+                    addGroup('Salary', salary);
+                    addGroup('Non-Salary', nonSalary);
+                }
+
+                doc.autoTable({
+                    head: headers, body: body,
+                    startY: 68,
+                    margin: { left:20, right:20, bottom:26 },
+                    styles: { fontSize:8, cellPadding:4, valign:'middle', lineColor:[200,200,200], lineWidth:0.3 },
+                    headStyles: { fillColor:[13,71,161], textColor:[255,255,255], fontStyle:'bold', halign:'center' },
+                    bodyStyles: { halign:'right' },
+                    columnStyles: { 0:{ halign:'left', cellWidth:55 }, 1:{ halign:'left', cellWidth:160 } },
+                    didParseCell: function (d) {
+                        if (d.section !== 'body') return;
+                        const s = styles[d.row.index];
+                        if (!s) return;
+                        if (s.fillColor) d.cell.styles.fillColor = s.fillColor;
+                        if (s.textColor) d.cell.styles.textColor = s.textColor;
+                        if (s.fontStyle) d.cell.styles.fontStyle = s.fontStyle;
+                    },
+                    didDrawPage: function () {
+                        const pc  = doc.internal.getNumberOfPages();
+                        const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                        doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(80,80,80);
+                        doc.text(ccName + '  |  Page ' + cur + ' of ' + pc, cx, pageH-12, { align:'center' });
+                        doc.setDrawColor(13,71,161); doc.setLineWidth(0.4);
+                        doc.line(20, pageH-20, pageW-20, pageH-20);
+                    }
+                });
+
+                const safe = (ccName + '_' + ccCode).replace(/[^a-zA-Z0-9_]/g,'_');
+                doc.save('CC_' + safe + '_' + yearLbl.replace(/\//g,'-') + '.pdf');
+            }
+        );
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Excel export (server-side via existing endpoint)
+    ═══════════════════════════════════════════════════════════════ */
+    function exportExcelReport() {
+        // Reuse the generic ExportExcel with costcenter report type
+        const qs = new URLSearchParams();
+        qs.set('reportType', 'costcenter');
+        if (_initYear)  qs.set('financialYear', _initYear);
+        qs.set('fundCode', _fundCode);
+        const ccFilter = $('#filterCC').val();
+        if (ccFilter) qs.set('costCenterCode', ccFilter);
+        window.location.href = '/Reports/ExportExcel?' + qs.toString();
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Helpers
+    ═══════════════════════════════════════════════════════════════ */
+    function fmtC(v)  { return Math.round(v || 0).toLocaleString(); }
+    function fmtN(v)  { return Math.round(v || 0).toLocaleString(); }
+    function esc(s)   { return $('<span>').text(String(s||'')).html(); }
+    function pct(n,d) { return d > 0 ? (n/d*100).toFixed(1) : '0.0'; }
+    function ucls(p)  { const n=parseFloat(p); return n>=90?'pct-danger':n>=70?'pct-warning':'pct-ok'; }
+    function pctBg(p) { const n=parseFloat(p); return n>=90?'pct-danger-bg':n>=70?'pct-warning-bg':'pct-ok-bg'; }
+    function encodeKey(s) { return String(s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
+
+    /* ─── Open Cost Center Detail page in new tab ──────── */
+    function openCostCenterDetail(ccCode, ccName) {
+        const qs = new URLSearchParams();
+        qs.set('costCenterCode', ccCode);
+        qs.set('costCenterName', ccName);
+        qs.set('fundCode',       _fundCode);
+        qs.set('fundName',       _fundName);
+        qs.set('departmentName', _deptName);
+        if (_initYear)   qs.set('financialYear', _initYear);
+        if (_initSector) qs.set('sector',        _initSector);
+        window.open('/Reports/CostCenterDetail?' + qs.toString(), '_blank');
+    }
+</script>
+}
