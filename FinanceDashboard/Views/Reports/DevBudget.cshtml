@@ -1,0 +1,471 @@
+@{
+    ViewData["Title"] = "Dev Budget Report";
+}
+
+@section Styles {
+<style>
+    #devBudgetPage {
+        width: 100%;
+        max-width: none;
+    }
+
+    /* ── Hero header ─────────────────────────────────── */
+    .devb-hero {
+        background: #eef1f5;
+        border-bottom: 1px solid #dde2e8;
+        border-radius: 10px 10px 0 0;
+        padding: 1rem 1.5rem;
+        color: #1a3a5c;
+        margin-bottom: 1.25rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+    .devb-hero h2 { font-size: 1.35rem; font-weight: 800; margin: 0; color: #1a3a5c; }
+    .devb-hero p { margin: .15rem 0 0; opacity: .75; font-size: .82rem; color: #4a5568; }
+    .devb-hero p strong { color: #1a3a5c; }
+    .devb-hero-icon {
+        width: 34px; height: 34px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.4rem; flex-shrink: 0; color: #1a3a5c;
+    }
+    .devb-hero-right {
+        display: flex; align-items: center; gap: .6rem;
+    }
+    .devb-hero-right select.form-select {
+        border: 1px solid #d7dde5; border-radius: 8px; font-size: .85rem;
+        min-width: 150px;
+    }
+    .devb-hero-refresh {
+        width: 38px; height: 38px; border-radius: 8px;
+        border: 1px solid #b9d4f5; background: #fff; color: #2c5282;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.05rem; transition: background .15s ease;
+    }
+    .devb-hero-refresh:hover { background: #eaf2ff; }
+
+    /* ── Filter bar ──────────────────────────────────── */
+    .devb-filter-bar {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        margin-bottom: 1.25rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 1rem;
+    }
+    .devb-filter-bar .devb-fld { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 200px; max-width: 320px; }
+    .devb-filter-bar label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #6b7482; }
+    .devb-filter-actions { display: flex; gap: .5rem; }
+
+    /* ── Table card ──────────────────────────────────── */
+    .devb-table-card {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        overflow: hidden;
+        width: 100%;
+    }
+    .devb-table-card .card-header-bar {
+        padding: .85rem 1.25rem;
+        border-bottom: 1px solid #eef0f3;
+        display: flex; align-items: center; justify-content: space-between;
+        font-weight: 700; color: #1a3a5c; font-size: .95rem;
+    }
+    #devBudgetTable thead th {
+        background: #1a3a5c; color: #fff; font-size: .78rem;
+        text-transform: uppercase; letter-spacing: .03em;
+    }
+    #devBudgetTable tbody td { font-size: .85rem; vertical-align: middle; }
+    #devBudgetTable tbody tr:hover td { background: #f4f7fb; }
+    #devBudgetTable tr.dtrg-group td {
+        background: #dbe7f5 !important;
+        font-weight: 700;
+        color: #1a3a5c;
+    }
+    #devBudgetTable td.dev-desc-cell { padding-left: 1.75rem; color: #4a5568; }
+</style>
+}
+
+<div id="devBudgetPage" class="fade-in">
+
+    <!-- Hero Header -->
+    <div class="devb-hero no-print">
+        <div class="d-flex align-items-center gap-3">
+            <div class="devb-hero-icon"><i class="bi bi-speedometer2"></i></div>
+            <div>
+                <h2>Development Dashboard</h2>
+                <p>Budget &amp; Expenditure Data — Last Updated: <strong id="lastUpdatedText">—</strong></p>
+            </div>
+        </div>
+        <div class="devb-hero-right">
+            <select id="filterYear" class="form-select form-select-sm">
+                <option value="">-- All Years --</option>
+            </select>
+            <button type="button" class="devb-hero-refresh" onclick="loadDevBudgetData()" title="Refresh">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="devb-filter-bar no-print">
+        <div class="devb-fld" style="max-width:320px;">
+            <label>Sector</label>
+            <select id="filterSector" class="form-select form-select-sm select2" multiple="multiple">
+            </select>
+        </div>
+        <div class="devb-fld" style="max-width:320px;">
+            <label>GS No</label>
+            <select id="filterGsNo" class="form-select form-select-sm select2" multiple="multiple">
+            </select>
+        </div>
+        <div class="devb-fld" style="max-width:480px;">
+            <label>Parent Project</label>
+            <select id="filterParentProject" class="form-select form-select-sm select2" multiple="multiple">
+            </select>
+        </div>
+        <div class="devb-filter-actions">
+            <button class="btn btn-primary btn-sm" onclick="loadDevBudgetData()">
+                <i class="bi bi-search me-1"></i>Search
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="clearDevBudgetFilters()">
+                <i class="bi bi-x-circle me-1"></i>Clear
+            </button>
+            <button class="btn btn-outline-primary btn-sm" onclick="exportDevBudget('excel')">
+                <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+            </button>
+            <button class="btn btn-outline-primary btn-sm" onclick="exportDevBudget('pdf')">
+                <i class="bi bi-file-earmark-pdf me-1"></i>Export PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-cards-row no-print" id="devBudgetCards">
+        <div class="rich-card rc-primary">
+            <div class="rc-budget-row">
+                <div class="rc-budget" id="cardAllocation">PKR 0.00</div>
+                <div class="rc-icon rc-icon-primary"><i class="bi bi-diagram-3"></i></div>
+            </div>
+            <div class="rc-label">Allocation</div>
+        </div>
+        <div class="rich-card rc-info">
+            <div class="rc-budget-row">
+                <div class="rc-budget" id="cardOriginalBudget">PKR 0.00</div>
+                <div class="rc-icon rc-icon-info"><i class="bi bi-cash-stack"></i></div>
+            </div>
+            <div class="rc-label">Final Budget</div>
+        </div>
+        <div class="rich-card rc-indigo">
+            <div class="rc-budget-row">
+                <div class="rc-budget" id="cardSupplementary">PKR 0.00</div>
+                <div class="rc-icon rc-icon-indigo"><i class="bi bi-plus-circle"></i></div>
+            </div>
+            <div class="rc-label">Progressive Release</div>
+        </div>
+        <div class="rich-card rc-success">
+            <div class="rc-budget-row">
+                <div class="rc-budget" id="cardReappPlus">PKR 0.00</div>
+                <div class="rc-icon rc-icon-success"><i class="bi bi-arrow-up-circle"></i></div>
+            </div>
+            <div class="rc-label">P&amp;D Release</div>
+        </div>
+        <div class="rich-card rc-navy">
+            <div class="rc-budget-row">
+                <div class="rc-budget" id="cardExpenditure">PKR 0.00</div>
+                <div class="rc-icon rc-icon-navy"><i class="bi bi-receipt"></i></div>
+            </div>
+            <div class="rc-label">Expenditure</div>
+        </div>
+    </div>
+
+
+    <!-- Loading Overlay -->
+    <div id="tableLoadingOverlay" style="display:none; text-align:center; padding:40px 0;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-muted">Loading...</div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="devb-table-card">
+        <div class="card-header-bar">
+            <span><i class="bi bi-table me-2"></i>Project Wise Detail (GL Description Hierarchy)</span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table id="devBudgetTable" class="table table-bordered table-sm table-hover mb-0 print-table" style="width:100%; min-width:1100px;">
+                <thead>
+                    <tr>
+                        <th>Project / GL Description</th>
+                        <th class="text-end">Allocation</th>
+                        <th class="text-end">Original Budget</th>
+                        <th class="text-end">Supplementary</th>
+                        <th class="text-end">Reapp (+)</th>
+                        <th class="text-end">Reapp (-)</th>
+                        <th class="text-end">Surrender</th>
+                        <th class="text-end">Expenditure</th>
+                    </tr>
+                </thead>
+                <tbody id="devBudgetTbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdn.datatables.net/rowgroup/1.4.1/js/dataTables.rowGroup.min.js"></script>
+<script>
+    let devBudgetTable;
+    let devBudgetRows = [];
+
+    function formatCurrencyNoDecimal(value) {
+        return new Intl.NumberFormat('en-PK', {
+            style: 'currency',
+            currency: 'PKR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(Math.round(Number(value) || 0));
+    }
+
+    function formatCurrencyCompact(value) {
+        const n = Number(value) || 0;
+        return new Intl.NumberFormat('en-PK', {
+            style: 'currency',
+            currency: 'PKR',
+            notation: 'compact',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 1
+        }).format(n);
+    }
+
+    $(document).ready(function () {
+        $('#filterSector').select2({ theme: 'bootstrap-5', width: '100%', placeholder: 'All Sectors', allowClear: true });
+        $('#filterGsNo').select2({ theme: 'bootstrap-5', width: '100%', placeholder: 'All GS No', allowClear: true });
+        $('#filterParentProject').select2({ theme: 'bootstrap-5', width: '100%', placeholder: 'All Parent Projects', allowClear: true });
+
+        devBudgetTable = $('#devBudgetTable').DataTable({
+            data: [],
+            deferRender: true,
+            processing: true,
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+            order: [[0, 'asc']],
+            columns: [
+                {
+                    data: 'projectID',
+                    title: 'Project / GL Description',
+                    render: function (data, type, row) {
+                        if (type !== 'display') return data;
+                        return `<span class="dev-desc-cell">${row.gldesc || '(Unclassified)'}</span>`;
+                    }
+                },
+                { data: 'allocation', title: 'Allocation', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'originalBudget', title: 'Original Budget', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'supplementaryBudget', title: 'Supplementary', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'reappPlus', title: 'Reapp (+)', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'reappMinus', title: 'Reapp (-)', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'surrender', title: 'Surrender', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d },
+                { data: 'progressiveExp', title: 'Expenditure', className: 'text-end', render: (d, t) => t === 'display' ? formatCurrencyNoDecimal(d) : d }
+            ],
+            rowGroup: {
+                dataSrc: 'projectID',
+                startRender: function (rows, group) {
+                    const sum = (col) => rows.data().pluck(col).reduce((a, b) => a + (Number(b) || 0), 0);
+                    const projectDescription = rows.data()[0].projectDescription;
+                    const gsNo = rows.data()[0].gsNo;
+                    const gsNoLabel = gsNo ? gsNo : '-';
+                    return $('<tr/>')
+                        .append(`<td><strong>${gsNoLabel} - ${group ?? ''}</strong>${projectDescription ? ' — ' + projectDescription : ''}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('allocation'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('originalBudget'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('supplementaryBudget'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('reappPlus'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('reappMinus'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('surrender'))}</td>`)
+                        .append(`<td class="text-end">${formatCurrencyNoDecimal(sum('progressiveExp'))}</td>`);
+                }
+            },
+            language: { emptyTable: 'No data available. Select filters and click Search.' }
+        });
+
+        loadFinancialYears().always(function () {
+            loadDevBudgetSectors();
+            loadGsNos();
+            loadParentProjects();
+            loadDevBudgetData();
+        });
+
+        $('#filterYear').on('change', function () {
+            loadDevBudgetSectors();
+            loadGsNos();
+            loadParentProjects();
+            loadDevBudgetData();
+        });
+    });
+
+    function loadFinancialYears() {
+        return $.get('/Dashboard/GetFinancialYears', function (res) {
+            if (res && res.success && res.data && res.data.length) {
+                const sel = $('#filterYear');
+                sel.find('option:not(:first)').remove();
+                res.data.forEach(y => sel.append(`<option value="${y}">${y}</option>`));
+                // Default to the latest financial year to avoid loading the full dataset across all years
+                sel.val(res.data[0]);
+            }
+        }).fail(function () {
+            // Fallback: silently ignore if endpoint doesn't exist; user can still filter by typing nothing
+        });
+    }
+
+    function loadParentProjects() {
+        const year = $('#filterYear').val();
+        $.get('/Reports/GetParentProjectLookup', { financialYear: year || null }, function (res) {
+            if (res && res.success) {
+                const sel = $('#filterParentProject');
+                const current = sel.val();
+                sel.empty();
+                res.data.forEach(item => sel.append(`<option value="${item.value}">${item.text}</option>`));
+                sel.val(current).trigger('change.select2');
+            }
+        });
+    }
+
+    function loadDevBudgetSectors() {
+        const year = $('#filterYear').val();
+        $.get('/Reports/GetDevBudgetSectorLookup', { financialYear: year || null }, function (res) {
+            if (res && res.success) {
+                const sel = $('#filterSector');
+                const current = sel.val();
+                sel.empty();
+                res.data.forEach(item => sel.append(`<option value="${item.value}">${item.text}</option>`));
+                sel.val(current).trigger('change.select2');
+            }
+        });
+    }
+
+    function loadGsNos() {
+        const year = $('#filterYear').val();
+        $.get('/Reports/GetGsNoLookup', { financialYear: year || null }, function (res) {
+            if (res && res.success) {
+                const sel = $('#filterGsNo');
+                const current = sel.val();
+                sel.empty();
+                res.data.forEach(item => sel.append(`<option value="${item.value}">${item.text}</option>`));
+                sel.val(current).trigger('change.select2');
+            }
+        });
+    }
+
+    function updateLastUpdatedText() {
+        const now = new Date();
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = now.toLocaleString('en-US', { month: 'short' });
+        const year = now.getFullYear();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        $('#lastUpdatedText').text(`${day} ${month} ${year} ${hh}:${mm}`);
+    }
+
+    function getSelectedParentProjects() {
+        return $('#filterParentProject').val() || [];
+    }
+
+    function getSelectedSectors() {
+        return $('#filterSector').val() || [];
+    }
+
+    function getSelectedGsNos() {
+        return $('#filterGsNo').val() || [];
+    }
+
+    function loadDevBudgetData() {
+        $('#tableLoadingOverlay').show();
+        const year = $('#filterYear').val();
+        const parentProjects = getSelectedParentProjects();
+        const sectors = getSelectedSectors();
+        const gsNos = getSelectedGsNos();
+
+        $.ajax({
+            url: '/Reports/GetDevBudgetData',
+            type: 'GET',
+            data: { financialYear: year || null, parentProjects: parentProjects, sectors: sectors, gsNos: gsNos },
+            traditional: true,
+            dataType: 'json'
+        })
+            .done(function (res) {
+                if (res && res.success) {
+                    devBudgetRows = res.data || [];
+                    devBudgetTable.clear();
+                    devBudgetTable.rows.add(devBudgetRows);
+                    devBudgetTable.draw();
+                    updateSummaryCards(devBudgetRows);
+                    updateLastUpdatedText();
+                } else {
+                    showToast('error', res.message || 'Failed to load data.');
+                }
+            })
+            .fail(function () {
+                showToast('error', 'Failed to load Dev Budget data.');
+            })
+            .always(function () {
+                $('#tableLoadingOverlay').hide();
+            });
+    }
+
+    function exportDevBudget(type) {
+        const year = $('#filterYear').val();
+        const parentProjects = getSelectedParentProjects();
+        const sectors = getSelectedSectors();
+        const gsNos = getSelectedGsNos();
+        const params = new URLSearchParams();
+        if (year) params.append('financialYear', year);
+        parentProjects.forEach(p => params.append('parentProjects', p));
+        sectors.forEach(s => params.append('sectors', s));
+        gsNos.forEach(g => params.append('gsNos', g));
+        const url = (type === 'excel' ? '/Reports/ExportDevBudgetExcel' : '/Reports/ExportDevBudgetPdf') + '?' + params.toString();
+        window.location.href = url;
+    }
+
+    function updateSummaryCards(rows) {
+        const sum = (key) => rows.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
+        const setCard = (id, val) => {
+            $('#' + id).text(formatCurrencyCompact(val)).attr('title', formatCurrencyNoDecimal(val));
+        };
+        setCard('cardAllocation', sum('allocation'));
+        setCard('cardOriginalBudget', sum('finalBudget'));
+        setCard('cardSupplementary', sum('progReleases'));
+        // ReleaseByPDD belongs to a GSNo (from budget.pndFile), but the same GSNo can appear
+        // across multiple ParentProject/gldesc rows in the report. Dedupe by GSNo (falling
+        // back to parentProject/projectID when GSNo is missing) before summing, otherwise the
+        // total gets multiplied by however many rows share that GSNo.
+        const seenProjects = new Set();
+        let pndReleaseSum = 0;
+        rows.forEach(r => {
+            const key = r.gsNo || r.parentProject || r.projectID;
+            if (!seenProjects.has(key)) {
+                seenProjects.add(key);
+                pndReleaseSum += Number(r.releaseByPDD) || 0;
+            }
+        });
+        // ReleaseByPDD is stored in millions in the source data (e.g. 349000 = PKR 349 Billion),
+        // so scale it up to raw PKR before using the standard compact currency formatter.
+        setCard('cardReappPlus', pndReleaseSum * 1000000);
+        setCard('cardExpenditure', sum('progressiveExp'));
+    }
+
+    function clearDevBudgetFilters() {
+        $('#filterYear').val('');
+        $('#filterSector').val([]).trigger('change');
+        $('#filterGsNo').val([]).trigger('change');
+        $('#filterParentProject').val([]).trigger('change');
+        loadDevBudgetSectors();
+        loadGsNos();
+        loadParentProjects();
+        loadDevBudgetData();
+    }
+</script>
+}

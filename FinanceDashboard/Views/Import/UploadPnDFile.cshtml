@@ -1,0 +1,247 @@
+@{
+    ViewData["Title"] = "Upload PnD File";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-upload me-2"></i>Upload PnD File</h2>
+            <p class="text-muted mb-0">Upload Excel file containing PnD (Planning &amp; Development) scheme data</p>
+        </div>
+        <div>
+            <a href="/Import/DownloadPnDFileSample" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Sample Format
+            </a>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>PnD File Upload</h6>
+                </div>
+                <div class="card-body p-4">
+                    <div class="alert alert-info py-2 mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The <strong>first sheet</strong> of the workbook is always used (its name does not matter).
+                        Row 1 must contain column headers matching the sample format.
+                        <a href="/Import/DownloadPnDFileSample" class="alert-link ms-1">Download sample</a> to see the exact format.
+                    </div>
+
+                    <div class="alert alert-warning py-2 mb-3">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Importing will <strong>delete all existing PnD data</strong> before inserting the new records.
+                    </div>
+
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+
+                        <div class="upload-zone mb-3" id="dropZone">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <h5>Drag and Drop your Excel file here</h5>
+                            <p class="mb-2">or</p>
+                            <button type="button" class="btn btn-outline-primary btn-sm mb-2" onclick="document.getElementById('pndFile').click()">
+                                <i class="bi bi-folder2-open me-1"></i>Browse Files
+                            </button>
+                            <br /><small class="text-muted">Supported: .xlsx, .xls (Max 50MB)</small>
+                        </div>
+                        <input type="file" id="pndFile" name="ExcelFile" accept=".xlsx,.xls" style="display:none" />
+
+                        <div id="fileInfo" class="alert alert-success d-none">
+                            <i class="bi bi-file-earmark-excel me-2"></i>
+                            <strong id="fileName"></strong>&nbsp;(<span id="fileSize"></span>)
+                        </div>
+
+                        <div class="d-grid gap-2 mt-3">
+                            <button type="button" class="btn btn-primary" id="importBtn" onclick="importPnDFile()" disabled>
+                                <i class="bi bi-upload me-2"></i>Import Data
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="progressSection" class="mt-4 d-none">
+                        <div class="progress mb-2" style="height:20px;">
+                            <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                 style="width:100%" role="progressbar"></div>
+                        </div>
+                        <div id="progressStatus" class="text-center mt-2 text-muted">Importing, please wait…</div>
+                    </div>
+
+                    <div id="importErrorAlert" class="alert alert-danger mt-3 d-none">
+                        <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                    </div>
+
+                    <div id="importSuccessAlert" class="alert alert-success mt-3 d-none">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <strong id="importSuccessMsg"></strong>
+                        <div class="mt-2">
+                            <a href="/Import/History" class="btn btn-success btn-sm me-2">
+                                <i class="bi bi-clock-history me-1"></i>View History
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row justify-content-center mt-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-primary">
+                <div class="card-header bg-primary bg-opacity-10">
+                    <h6 class="mb-0 text-primary"><i class="bi bi-database-fill-up me-2"></i>Update Data</h6>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted mb-3">
+                        After importing the PnD file, click below to rebuild <strong>budget.pdSec</strong>.
+                        Codes in <strong>LoNumberCapital</strong> and <strong>LoNumberRevenue</strong> (comma-separated) are split
+                        into individual Project rows, each carrying GSNo, SectorID and SectorName, and are upserted into
+                        <strong>pdSec</strong> keyed on Project. The <strong>sectorDesc</strong> column is set to
+                        "SectorID.SectorName".
+                    </p>
+
+                    <div class="d-grid">
+                        <button type="button" class="btn btn-primary btn-lg" id="updatePdSecBtn" onclick="updatePdSec()">
+                            <i class="bi bi-arrow-repeat me-2"></i>Update Data
+                        </button>
+                    </div>
+
+                    <div id="pdSecProgressSection" class="mt-3 d-none">
+                        <div class="progress" style="height:20px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:100%"></div>
+                        </div>
+                        <div class="text-center mt-2 text-muted">Updating pdSec, please wait…</div>
+                    </div>
+
+                    <div id="pdSecSuccessAlert" class="alert alert-success mt-3 d-none">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <strong id="pdSecSuccessMsg"></strong>
+                    </div>
+
+                    <div id="pdSecErrorAlert" class="alert alert-danger mt-3 d-none">
+                        <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+@section Scripts {
+<script>
+    var pndSelectedFile = null;
+
+    function safeJsonPnD(response) {
+        if (response.status === 401 || response.redirected) {
+            window.location.href = '/Account/Login';
+            return Promise.reject(null);
+        }
+        if (response.status === 413) {
+            return Promise.reject(new Error('File is too large. Maximum allowed size is 50 MB. Please reduce the file size and try again.'));
+        }
+        var ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            return Promise.reject(new Error('Server error (HTTP ' + response.status + '). Please try again or contact support.'));
+        }
+        return response.json();
+    }
+
+    document.getElementById('pndFile').addEventListener('change', function () {
+        if (this.files && this.files.length > 0) handlePndFile(this.files[0]);
+    });
+
+    var pndDropZone = document.getElementById('dropZone');
+    pndDropZone.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.add('dragover'); });
+    pndDropZone.addEventListener('dragleave', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover'); });
+    pndDropZone.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handlePndFile(e.dataTransfer.files[0]);
+    });
+
+    function handlePndFile(file) {
+        var ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+        if (ext !== '.xlsx' && ext !== '.xls') { showToast('error', 'Invalid file type. Only .xlsx and .xls allowed.'); return; }
+        if (file.size > 52428800) { showToast('error', 'File size exceeds 50 MB limit.'); return; }
+        pndSelectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+        document.getElementById('fileInfo').classList.remove('d-none');
+        document.getElementById('importBtn').disabled = false;
+    }
+
+    function importPnDFile() {
+        if (!pndSelectedFile) return;
+        if (!confirm('Import this PnD file?\n\nThis will DELETE all existing PnD data and insert fresh records from the file.')) return;
+
+        document.getElementById('progressSection').classList.remove('d-none');
+        document.getElementById('importErrorAlert').classList.add('d-none');
+        document.getElementById('importSuccessAlert').classList.add('d-none');
+        document.getElementById('importBtn').disabled = true;
+
+        var fd = new FormData();
+        fd.append('excelFile', pndSelectedFile);
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+
+        fetch('/Import/ImportPnDFile', { method: 'POST', body: fd })
+            .then(safeJsonPnD)
+            .then(function (r) {
+                document.getElementById('progressSection').classList.add('d-none');
+                document.getElementById('importBtn').disabled = false;
+                if (r && r.success) {
+                    document.getElementById('importSuccessMsg').textContent = r.message;
+                    document.getElementById('importSuccessAlert').classList.remove('d-none');
+                } else {
+                    var e = document.getElementById('importErrorAlert');
+                    e.querySelector('span').textContent = (r && r.message) ? r.message : 'Import failed.';
+                    e.classList.remove('d-none');
+                }
+            })
+            .catch(function (err) {
+                document.getElementById('progressSection').classList.add('d-none');
+                document.getElementById('importBtn').disabled = false;
+                if (!err) return;
+                var e = document.getElementById('importErrorAlert');
+                e.querySelector('span').textContent = err.message || 'An unexpected error occurred.';
+                e.classList.remove('d-none');
+            });
+    }
+
+    function updatePdSec() {
+        if (!confirm('Update Data?\n\nThis will upsert budget.pdSec from the current PnD file data, keyed on Project.\n\nContinue?')) return;
+
+        var btn = document.getElementById('updatePdSecBtn');
+        btn.disabled = true;
+        document.getElementById('pdSecProgressSection').classList.remove('d-none');
+        document.getElementById('pdSecSuccessAlert').classList.add('d-none');
+        document.getElementById('pdSecErrorAlert').classList.add('d-none');
+
+        var fd = new FormData();
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+
+        fetch('/Import/UpdatePdSec', { method: 'POST', body: fd })
+            .then(safeJsonPnD)
+            .then(function (r) {
+                document.getElementById('pdSecProgressSection').classList.add('d-none');
+                btn.disabled = false;
+                if (r && r.success) {
+                    document.getElementById('pdSecSuccessMsg').textContent = r.message;
+                    document.getElementById('pdSecSuccessAlert').classList.remove('d-none');
+                } else {
+                    var e = document.getElementById('pdSecErrorAlert');
+                    e.querySelector('span').textContent = (r && r.message) ? r.message : 'Update failed.';
+                    e.classList.remove('d-none');
+                }
+            })
+            .catch(function (err) {
+                document.getElementById('pdSecProgressSection').classList.add('d-none');
+                btn.disabled = false;
+                if (!err) return;
+                var e = document.getElementById('pdSecErrorAlert');
+                e.querySelector('span').textContent = err.message || 'An unexpected error occurred.';
+                e.classList.remove('d-none');
+            });
+    }
+</script>
+}

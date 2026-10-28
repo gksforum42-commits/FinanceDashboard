@@ -76,6 +76,17 @@ namespace FinanceDashboard.Controllers
                 });
 
                 _logger.LogInformation("User {Email} logged in.", model.Email);
+
+                var roles = await _userManager.GetRolesAsync(user);
+                // Only redirect straight to the SNE dashboard for users whose sole role is SNEDepartmentUser.
+                // Budget Officer users (DepartmentUser + SNEDepartmentUser) should land on the normal dashboard
+                // and access SNE via the menu, since they also need regular department dashboard access.
+                var isSneOnlyUser = roles.Contains("SNEDepartmentUser")
+                    && !roles.Contains("Administrator")
+                    && !roles.Contains("DepartmentUser");
+                if (isSneOnlyUser)
+                    return RedirectToAction("Index", "Sne");
+
                 return RedirectToLocal(returnUrl);
             }
 
@@ -170,6 +181,7 @@ namespace FinanceDashboard.Controllers
         {
             if (Url.IsLocalUrl(returnUrl))
                 return Redirect(returnUrl);
+
             return RedirectToAction("Index", "Dashboard");
         }
     }

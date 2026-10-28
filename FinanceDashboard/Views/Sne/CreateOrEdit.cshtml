@@ -1,0 +1,683 @@
+@model FinanceDashboard.ViewModels.SneFormViewModel
+@{
+    ViewData["Title"] = "SNE Form";
+    var yearNext = Model.FinancialYear + 1;
+    var yearAfter = yearNext + 1;
+    var yearFinal = yearAfter + 1;
+    var priorYear = Model.FinancialYear - 1;
+}
+
+@section Styles {
+<style>
+    #sneFormPage { width: 100%; max-width: none; }
+
+    .sne-hero {
+        background: #eef1f5;
+        border-bottom: 1px solid #dde2e8;
+        border-radius: 10px 10px 0 0;
+        padding: 1rem 1.5rem;
+        color: #1a3a5c;
+        margin-bottom: .75rem;
+    }
+    .sne-hero h2 { font-size: 1.2rem; font-weight: 800; margin: 0; color: #1a3a5c; }
+
+    .sne-info-card {
+        background: #fff; border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+    .sne-info-card .sne-info-row { font-size: .9rem; color: #1a3a5c; margin-bottom: .35rem; }
+    .sne-info-card .sne-info-row:last-child { margin-bottom: 0; }
+    .sne-info-card .sne-info-row strong { color: #2c5282; }
+    .sne-info-card .sne-status-badge { font-size: .75rem; padding: .25rem .6rem; border-radius: 20px; font-weight: 700; }
+    .sne-status-badge.draft { background: #dbe7f5; color: #1a3a5c; }
+    .sne-status-badge.submitted { background: #1a3a5c; color: #fff; }
+    .sne-status-badge.pending { background: #ffe8b3; color: #7a5200; }
+
+    .sne-grid-card {
+        background: #fff; border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        overflow: hidden; width: 100%; margin-bottom: 1.25rem;
+    }
+    .sne-grid-card .card-header-bar {
+        padding: .75rem 1.25rem; border-bottom: 1px solid #eef0f3;
+        display: flex; align-items: center; justify-content: space-between;
+        font-weight: 700; color: #1a3a5c; font-size: .95rem;
+    }
+
+    /* Scroll container: both directions, header + first two columns stay pinned */
+    .sne-scroll { overflow: auto; max-height: 70vh; }
+
+    #sneGridTable { min-width: 1800px; width: 100%; border-collapse: separate; border-spacing: 0; }
+
+    #sneGridTable thead th {
+        position: sticky; top: 0; z-index: 3;
+        background: #1a3a5c; color: #fff; font-size: .7rem;
+        text-transform: uppercase; letter-spacing: .02em;
+        padding: .5rem .4rem; text-align: center; white-space: normal;
+        vertical-align: middle;
+    }
+    #sneGridTable tbody td {
+        font-size: .8rem; vertical-align: middle;
+        padding: .3rem; border-bottom: 1px solid #eef0f3; background: #fff;
+    }
+    #sneGridTable tbody tr:hover td { background: #f8fafc; }
+
+    /* Sticky GL Code (col 1) and Description (col 2) */
+    #sneGridTable thead th:nth-child(1), #sneGridTable tbody td:nth-child(1) {
+        position: sticky; left: 0; z-index: 2; min-width: 100px; max-width: 100px;
+    }
+    #sneGridTable thead th:nth-child(2), #sneGridTable tbody td:nth-child(2) {
+        position: sticky; left: 100px; z-index: 2; min-width: 190px; max-width: 190px;
+        box-shadow: 2px 0 0 #dde2e8;
+    }
+    #sneGridTable thead th:nth-child(1), #sneGridTable thead th:nth-child(2) { z-index: 5; }
+
+    /* Column widths by content type */
+    #sneGridTable td:nth-child(3) { min-width: 90px; }    /* Sub Head */
+    #sneGridTable td:nth-child(4) { min-width: 90px; }    /* Post Code */
+    #sneGridTable td:nth-child(5) { min-width: 200px; }   /* Designation */
+    #sneGridTable td:nth-child(6),
+    #sneGridTable td:nth-child(7),
+    #sneGridTable td:nth-child(8) { min-width: 85px; }    /* BS, No of Posts */
+    #sneGridTable td:has(input.row-amount) { min-width: 170px; }
+    #sneGridTable td.sne-actions { min-width: 70px; }
+
+    #sneGridTable input {
+        width: 100%; border: 1px solid #d7dde5; border-radius: 6px;
+        padding: .3rem .4rem; font-size: .8rem; text-align: right;
+    }
+    #sneGridTable input[type="text"] { text-align: left; text-overflow: ellipsis; }
+    #sneGridTable input.row-amount {
+        text-align: right; min-width: 150px;
+        font-variant-numeric: tabular-nums;
+    }
+    #sneGridTable input:disabled { background: #f4f6f8; color: #6b7482; border-color: transparent; }
+    #sneGridTable input.sne-editable { background: #fffef5; border-color: #b9d4f5; }
+    #sneGridTable input.row-glcode.is-invalid { border-color: #dc3545; background: #fdeceb; }
+    #sneGridTable td.sne-actions { text-align: center; white-space: nowrap; }
+
+    /* Totals row */
+    #sneGridTable tfoot td {
+        position: sticky; bottom: 0; z-index: 3;
+        background: #eef1f5; border-top: 2px solid #c9d3e0;
+        padding: .5rem .5rem; font-size: .8rem; font-weight: 700; color: #1a3a5c;
+        text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    #sneGridTable tfoot td.sne-total-label { left: 0; z-index: 4; text-align: left; }
+
+    .sne-form-actions { display: flex; gap: .6rem; justify-content: flex-end; margin-top: 1rem; }
+</style>
+}
+
+<div id="sneFormPage" class="container-fluid px-4 py-3">
+    <div class="sne-hero">
+        <h2>Form BM-II &mdash; Estimates of Permanent Expenditure FY @Model.FinancialYear-@(yearNext.ToString().Substring(2)) and Two Outer Financial Years</h2>
+    </div>
+
+    <div class="sne-info-card">
+        <div class="sne-info-row"><strong>Department:</strong> @(Model.DepartmentName ?? Model.DepartmentCode) (@Model.DepartmentCode)</div>
+        <div class="sne-info-row"><strong>Cost Center:</strong> @Model.CostCenterCode @Model.CostCenterDesc</div>
+        <div class="sne-info-row"><strong>Fund:</strong> @Model.FundCode @Model.FundDescription</div>
+        <div class="sne-info-row">
+            <strong>Status:</strong>
+            @if (Model.Status == FinanceDashboard.ViewModels.SneFormViewModel.StatusSubmitted)
+            {
+                <span class="sne-status-badge submitted">Submitted (Final)</span>
+            }
+            else if (Model.Status == FinanceDashboard.ViewModels.SneFormViewModel.StatusSubmittedBySne)
+            {
+                <span class="sne-status-badge pending">Submitted by SNE &mdash; Pending Department Review</span>
+            }
+            else
+            {
+                <span class="sne-status-badge draft">Draft</span>
+            }
+            @if (Model.CanRevert)
+            {
+                <button type="button" class="btn btn-sm btn-outline-warning ms-2" id="btnRevert"><i class="bi bi-arrow-counterclockwise"></i> Revert to Draft</button>
+            }
+        </div>
+    </div>
+
+    <div class="sne-grid-card">
+        <div class="card-header-bar">
+            <span>Line Items</span>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-success" id="btnExportExcel" asp-action="ExportCostCenter" asp-route-costCenterCode="@Model.CostCenterCode" asp-route-financialYear="@Model.FinancialYear">
+                    <i class="bi bi-file-earmark-excel"></i> Export Excel
+                </a>
+                @if (!Model.IsReadOnly)
+                {
+                    <button type="button" class="btn btn-sm btn-primary" id="btnImportExcel"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</button>
+                    <input type="file" id="importExcelInput" accept=".xlsx" style="display:none" />
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow"><i class="bi bi-plus-circle"></i> Add Row</button>
+                }
+            </div>
+        </div>
+        <div class="sne-scroll">
+            <table id="sneGridTable">
+                <thead>
+                    <tr>
+                        <th>Gl Code</th>
+                        <th>Description</th>
+                        <th>Sub Head</th>
+                        <th>Post Code</th>
+                        <th>Designation</th>
+                        <th>BS</th>
+                        <th>No of Posts @priorYear-@(Model.FinancialYear.ToString().Substring(2))</th>
+                        <th>No of Posts @Model.FinancialYear-@(yearNext.ToString().Substring(2))</th>
+                        <th>Actual Exp Last 8 Months</th>
+                        <th>Actual Exp First 4 Months</th>
+                        <th>Total Estimate Exp @priorYear-@(Model.FinancialYear.ToString().Substring(2))</th>
+                        <th>Budget Estimate @priorYear-@(Model.FinancialYear.ToString().Substring(2))</th>
+                        <th>Proposed Budget @Model.FinancialYear-@(yearNext.ToString().Substring(2))</th>
+                        <th>Budget Estimate @yearNext-@(yearAfter.ToString().Substring(2))</th>
+                        <th>Budget Estimate @yearAfter-@(yearFinal.ToString().Substring(2))</th>
+                        <th>Justification</th>
+                        @if (!Model.IsReadOnly)
+                        {
+                            <th>Action</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody id="sneGridBody">
+                    @for (var i = 0; i < Model.Lines.Count; i++)
+                    {
+                        var line = Model.Lines[i];
+                        var fetched = line.IsFetched;
+                        <tr data-row-index="@i">
+                            <td><input type="text" class="row-glcode" value="@line.GlCode" title="@line.GlCode" disabled="@fetched" /></td>
+                            <td><input type="text" class="row-gldesc" value="@line.GlDesc" title="@line.GlDesc" disabled="@fetched" /></td>
+                            <td><input type="text" class="row-subhead" value="@line.SubHeadCode" disabled="@fetched" /></td>
+                            <td><input type="text" class="row-postcode" value="@line.PostCode" title="@line.PostCode" disabled="@fetched" /></td>
+                            <td><input type="text" class="row-designation" value="@line.Designation" title="@line.Designation" disabled="@fetched" /></td>
+                            <td><input type="text" class="row-bs" value="@line.BS" disabled="@fetched" /></td>
+                            <td><input type="number" class="row-postprevious" value="@line.PostPrevious" disabled="@fetched" /></td>
+                            <td><input type="number" class="row-postcurrent sne-editable" value="@line.PostCurrent" disabled="@Model.IsReadOnly" /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-actualexp8 sne-editable" data-value="@line.ActualExpLast8Previous" disabled="@Model.IsReadOnly" /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-actualexp4 sne-editable" data-value="@line.ActualLast4Current" disabled="@Model.IsReadOnly" /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-totalestimate" data-value="@line.TotalEstimatedExpCurrent" disabled /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-budgetcurrent" data-value="@line.BudgetEstimateCurrent" disabled /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-proposed1 sne-editable" data-value="@line.ProposedBudget1" disabled="@Model.IsReadOnly" /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-proposed2 sne-editable" data-value="@line.ProposedBudget2" disabled="@Model.IsReadOnly" /></td>
+                            <td><input type="text" inputmode="decimal" class="row-amount row-proposed3 sne-editable" data-value="@line.ProposedBudget3" disabled="@Model.IsReadOnly" /></td>
+                            <td class="sne-justification">
+                                <input type="hidden" class="row-justification" value="@line.Justification" />
+                                <button type="button" class="btn btn-sm btn-outline-secondary btnJustification" title="Add/View Justification">
+                                    <i class="bi bi-chat-left-text"></i>
+                                </button>
+                            </td>
+                            @if (!Model.IsReadOnly)
+                            {
+                                <td class="sne-actions">
+                                    <button type="button" class="btn btn-sm btn-outline-danger btnDeleteRow"><i class="bi bi-trash"></i></button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td class="sne-total-label" colspan="2">Total</td>
+                        <td colspan="6"></td>
+                        <td id="tot-actualexp8"></td>
+                        <td id="tot-actualexp4"></td>
+                        <td id="tot-totalestimate"></td>
+                        <td id="tot-budgetcurrent"></td>
+                        <td id="tot-proposed1"></td>
+                        <td id="tot-proposed2"></td>
+                        <td id="tot-proposed3"></td>
+                        <td></td>
+                        @if (!Model.IsReadOnly)
+                        {
+                            <td></td>
+                        }
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <div class="modal fade" id="justificationModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Justification</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea id="justificationTextArea" class="form-control" rows="8" maxlength="4000" @(Model.IsReadOnly ? "disabled" : "")></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    @if (!Model.IsReadOnly)
+                    {
+                        <button type="button" class="btn btn-primary" id="btnSaveJustification">Save</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!Model.IsReadOnly)
+    {
+        <div class="sne-form-actions">
+            <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+            <button type="button" class="btn btn-primary" id="btnSave"><i class="bi bi-save"></i> Save</button>
+            <button type="button" class="btn btn-success" id="btnSubmit"><i class="bi bi-check2-circle"></i> Submit</button>
+        </div>
+    }
+    else
+    {
+        <div class="sne-form-actions">
+            <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        const sneHeaderId = @(Model.HeaderId?.ToString() ?? "null");
+        const sneCostCenterCode = @Html.Raw(Json.Serialize(Model.CostCenterCode));
+        const sneFinancialYear = @Model.FinancialYear;
+        const sneFundCode = @Html.Raw(Json.Serialize(Model.FundCode));
+
+        // 'en-IN' => 1,25,00,00,000 (lakh/crore). Use 'en-US' for 1,250,000,000.
+        const AMOUNT_LOCALE = 'en-IN';
+
+        const AMOUNT_CLASSES = [
+            'row-actualexp8', 'row-actualexp4', 'row-totalestimate',
+            'row-budgetcurrent', 'row-proposed1', 'row-proposed2', 'row-proposed3'
+        ];
+
+        function parseAmount(text) {
+            const raw = String(text ?? '').replace(/,/g, '').trim();
+            if (raw === '' || isNaN(raw)) return null;
+            return Number(raw);
+        }
+
+        function formatAmount(n) {
+            if (n === null || n === undefined || isNaN(n)) return '';
+            return Number(n).toLocaleString(AMOUNT_LOCALE, { maximumFractionDigits: 2 });
+        }
+
+        function formatAmountInput(el) {
+            const n = parseAmount(el.value);
+            el.value = formatAmount(n);
+            el.title = el.value;
+        }
+
+        function initAmountFields(scope) {
+            scope.querySelectorAll('.row-amount').forEach(function (el) {
+                const initial = el.getAttribute('data-value');
+                if (initial !== null && initial !== '' && initial !== 'null') {
+                    el.value = formatAmount(Number(initial));
+                    el.title = el.value;
+                }
+            });
+        }
+
+        function updateRowTotalEstimate(row) {
+            const exp8 = row.querySelector('.row-actualexp8');
+            const exp4 = row.querySelector('.row-actualexp4');
+            const total = row.querySelector('.row-totalestimate');
+            if (!total) return;
+            const sum = (parseAmount(exp8 ? exp8.value : null) || 0) + (parseAmount(exp4 ? exp4.value : null) || 0);
+            total.value = formatAmount(sum);
+            total.title = total.value;
+        }
+
+        function updateAllRowTotalEstimates() {
+            document.querySelectorAll('#sneGridBody tr').forEach(updateRowTotalEstimate);
+        }
+
+        function updateTotals() {
+            AMOUNT_CLASSES.forEach(function (cls) {
+                let sum = 0;
+                document.querySelectorAll('#sneGridBody .' + cls).forEach(function (el) {
+                    sum += parseAmount(el.value) || 0;
+                });
+                const cell = document.getElementById('tot-' + cls.replace('row-', ''));
+                if (cell) {
+                    cell.textContent = formatAmount(sum);
+                    cell.title = cell.textContent;
+                }
+            });
+        }
+
+        function addSneRow() {
+            const tbody = document.getElementById('sneGridBody');
+            const idx = tbody.querySelectorAll('tr').length;
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-row-index', idx);
+            tr.innerHTML = `
+                <td><input type="text" class="row-glcode" /></td>
+                <td><input type="text" class="row-gldesc" /></td>
+                <td><input type="text" class="row-subhead" /></td>
+                <td><input type="text" class="row-postcode" /></td>
+                <td><input type="text" class="row-designation" /></td>
+                <td><input type="text" class="row-bs" /></td>
+                <td><input type="number" class="row-postprevious" /></td>
+                <td><input type="number" class="row-postcurrent sne-editable" /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-actualexp8 sne-editable" /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-actualexp4 sne-editable" /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-totalestimate" disabled /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-budgetcurrent" disabled /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-proposed1 sne-editable" /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-proposed2 sne-editable" /></td>
+                <td><input type="text" inputmode="decimal" class="row-amount row-proposed3 sne-editable" /></td>
+                <td class="sne-justification">
+                    <input type="hidden" class="row-justification" value="" />
+                    <button type="button" class="btn btn-sm btn-outline-secondary btnJustification" title="Add/View Justification">
+                        <i class="bi bi-chat-left-text"></i>
+                    </button>
+                </td>
+                <td class="sne-actions"><button type="button" class="btn btn-sm btn-outline-danger btnDeleteRow"><i class="bi bi-trash"></i></button></td>
+            `;
+            tbody.appendChild(tr);
+            return tr;
+        }
+
+        function fillSneRow(tr, line) {
+            const setVal = (cls, value) => {
+                const el = tr.querySelector('.' + cls);
+                if (el) el.value = value ?? '';
+            };
+            setVal('row-glcode', line.glCode);
+            setVal('row-gldesc', line.glDesc);
+            setVal('row-subhead', line.subHeadCode);
+            setVal('row-postcode', line.postCode);
+            setVal('row-designation', line.designation);
+            setVal('row-bs', line.bs);
+            setVal('row-postprevious', line.postPrevious);
+            setVal('row-postcurrent', line.postCurrent);
+            setVal('row-justification', line.justification);
+
+            const glInput = tr.querySelector('.row-glcode');
+            if (glInput) glInput.setAttribute('data-gl-valid', line.glCode ? 'true' : '');
+
+            ['row-actualexp8', 'row-actualexp4', 'row-totalestimate', 'row-budgetcurrent', 'row-proposed1', 'row-proposed2', 'row-proposed3'].forEach(function (cls) {
+                const el = tr.querySelector('.' + cls);
+                if (!el) return;
+                const key = { 'row-actualexp8': 'actualExpLast8Previous', 'row-actualexp4': 'actualLast4Current', 'row-totalestimate': 'totalEstimatedExpCurrent', 'row-budgetcurrent': 'budgetEstimateCurrent', 'row-proposed1': 'proposedBudget1', 'row-proposed2': 'proposedBudget2', 'row-proposed3': 'proposedBudget3' }[cls];
+                el.value = formatAmount(line[key]);
+                el.title = el.value;
+            });
+
+            const btn = tr.querySelector('.btnJustification');
+            if (btn && line.justification && line.justification.trim() !== '') {
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-secondary', 'text-white');
+            }
+        }
+
+        function replaceSneGridWithImportedLines(lines) {
+            const tbody = document.getElementById('sneGridBody');
+            tbody.innerHTML = '';
+            lines.forEach(function (line) {
+                const tr = addSneRow();
+                fillSneRow(tr, line);
+            });
+            updateAllRowTotalEstimates();
+            updateTotals();
+        }
+
+        function collectSneLines() {
+            const rows = document.querySelectorAll('#sneGridBody tr');
+            const lines = [];
+            rows.forEach(function (row) {
+                const val = (cls, num) => {
+                    const el = row.querySelector('.' + cls);
+                    if (!el) return null;
+                    if (num) return parseAmount(el.value);   // strips commas, returns Number or null
+                    return el.value === '' ? null : el.value;
+                };
+                lines.push({
+                    glCode: val('row-glcode', false),
+                    glDesc: val('row-gldesc', false),
+                    subHeadCode: val('row-subhead', false),
+                    postCode: val('row-postcode', false),
+                    designation: val('row-designation', false),
+                    bs: val('row-bs', false),
+                    postPrevious: val('row-postprevious', true),
+                    postCurrent: val('row-postcurrent', true),
+                    actualExpLast8Previous: val('row-actualexp8', true),
+                    actualLast4Current: val('row-actualexp4', true),
+                    totalEstimatedExpCurrent: val('row-totalestimate', true),
+                    budgetEstimateCurrent: val('row-budgetcurrent', true),
+                    proposedBudget1: val('row-proposed1', true),
+                    proposedBudget2: val('row-proposed2', true),
+                    proposedBudget3: val('row-proposed3', true),
+                    justification: val('row-justification', false)
+                });
+            });
+            return lines;
+        }
+
+        function buildSneRequest() {
+            return {
+                headerId: sneHeaderId,
+                costCenterCode: sneCostCenterCode,
+                financialYear: sneFinancialYear,
+                fundCode: sneFundCode,
+                lines: collectSneLines()
+            };
+        }
+
+        // --- GL Code lookup / validation for newly added rows ---
+        function lookupGlCode(input) {
+            const row = input.closest('tr');
+            const glCode = input.value.trim();
+            const glDescEl = row.querySelector('.row-gldesc');
+            const subHeadEl = row.querySelector('.row-subhead');
+
+            input.classList.remove('is-invalid');
+            input.setAttribute('data-gl-valid', '');
+
+            if (glCode === '') {
+                if (glDescEl) glDescEl.value = '';
+                if (subHeadEl) subHeadEl.value = '';
+                return;
+            }
+
+            $.get('/Sne/GetGlCodeInfo', { glCode: glCode })
+                .done(function (r) {
+                    if (r && r.success) {
+                        if (glDescEl) { glDescEl.value = r.data.glDesc || ''; glDescEl.title = glDescEl.value; }
+                        if (subHeadEl) subHeadEl.value = r.data.subHeadCode || '';
+                        input.setAttribute('data-gl-valid', 'true');
+                    } else {
+                        if (glDescEl) glDescEl.value = '';
+                        if (subHeadEl) subHeadEl.value = '';
+                        input.classList.add('is-invalid');
+                        input.setAttribute('data-gl-valid', 'false');
+                        showToast('error', (r && r.message) || `GL Code '${glCode}' does not exist.`);
+                    }
+                })
+                .fail(function () {
+                    input.classList.add('is-invalid');
+                    input.setAttribute('data-gl-valid', 'false');
+                    showToast('error', 'Failed to validate GL Code.');
+                });
+        }
+
+        // Validates all editable (non-fetched) GL Code fields before save/submit.
+        // Returns true if valid, otherwise shows a toast and returns false.
+        function validateGlCodesBeforeSubmit() {
+            let firstInvalid = null;
+            document.querySelectorAll('#sneGridBody .row-glcode:not(:disabled)').forEach(function (input) {
+                const glCode = input.value.trim();
+                if (glCode !== '' && input.getAttribute('data-gl-valid') === 'false') {
+                    input.classList.add('is-invalid');
+                    if (!firstInvalid) firstInvalid = input;
+                }
+            });
+            if (firstInvalid) {
+                showToast('error', `GL Code '${firstInvalid.value.trim()}' does not exist. Please correct it before continuing.`);
+                firstInvalid.focus();
+                return false;
+            }
+            return true;
+        }
+
+        // Show the plain number while editing, formatted number otherwise
+        $(document).on('focus', '.row-amount', function () {
+            this.value = this.value.replace(/,/g, '');
+        });
+        $(document).on('blur', '.row-amount', function () {
+            formatAmountInput(this);
+            updateTotals();
+        });
+        $(document).on('input', '.row-amount', function () {
+            // allow digits, one decimal point and a leading minus only
+            this.value = this.value.replace(/[^0-9.\-]/g, '');
+        });
+        $(document).on('input', '.row-actualexp8, .row-actualexp4', function () {
+            updateRowTotalEstimate(this.closest('tr'));
+        });
+        $(document).on('blur', '.row-actualexp8, .row-actualexp4', function () {
+            updateRowTotalEstimate(this.closest('tr'));
+            updateTotals();
+        });
+        $(document).on('blur', '.row-glcode:not(:disabled)', function () {
+            lookupGlCode(this);
+        });
+        $(document).on('input', '.row-glcode:not(:disabled)', function () {
+            this.classList.remove('is-invalid');
+            this.setAttribute('data-gl-valid', '');
+        });
+
+        $(document).ready(function () {
+            initAmountFields(document);
+            updateAllRowTotalEstimates();
+            updateTotals();
+
+            document.querySelectorAll('#sneGridBody tr').forEach(function (row) {
+                const hidden = row.querySelector('.row-justification');
+                if (hidden && hidden.value && hidden.value.trim() !== '') {
+                    const btn = row.querySelector('.btnJustification');
+                    if (btn) {
+                        btn.classList.remove('btn-outline-secondary');
+                        btn.classList.add('btn-secondary', 'text-white');
+                    }
+                }
+            });
+
+            $('#btnAddRow').on('click', addSneRow);
+
+            $('#btnRevert').on('click', function () {
+                if (!confirm('Revert this SNE form to Draft so it can be edited again?')) return;
+                showLoading();
+                ajaxPostJson('/Sne/Revert', { headerId: sneHeaderId, costCenterCode: sneCostCenterCode, financialYear: sneFinancialYear }, function (r) {
+                    hideLoading();
+                    if (r.success) {
+                        showToast('success', r.message);
+                        setTimeout(() => window.location.reload(), 600);
+                    } else {
+                        showToast('error', r.message);
+                    }
+                });
+            });
+
+            $(document).on('click', '.btnDeleteRow', function () {
+                $(this).closest('tr').remove();
+                updateTotals();
+            });
+
+            $('#btnImportExcel').on('click', function () {
+                $('#importExcelInput').val('').trigger('click');
+            });
+
+            $('#importExcelInput').on('change', function () {
+                const fileInput = this;
+                if (!fileInput.files || fileInput.files.length === 0) return;
+
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('costCenterCode', sneCostCenterCode);
+                formData.append('fundCode', sneFundCode || '');
+                const token = $('input[name="__RequestVerificationToken"]').val();
+                if (token) formData.append('__RequestVerificationToken', token);
+
+                showLoading();
+                $.ajax({
+                    url: '/Sne/ImportCostCenter',
+                    type: 'POST',
+                    data: formData,
+                    contentType: false,
+                    processData: false
+                }).done(function (r) {
+                    hideLoading();
+                    if (r.success) {
+                        replaceSneGridWithImportedLines(r.lines);
+                        showToast('success', `Imported ${r.lines.length} row(s) from Excel. Review and click Save/Submit to persist.`);
+                    } else {
+                        const errList = (r.errors && r.errors.length) ? '<br/>' + r.errors.slice(0, 15).join('<br/>') : '';
+                        showToast('error', (r.message || 'Import failed.') + errList);
+                    }
+                }).fail(function () {
+                    hideLoading();
+                    showToast('error', 'Failed to upload the file.');
+                });
+            });
+
+            let $activeJustificationRow = null;
+            const justificationModal = new bootstrap.Modal(document.getElementById('justificationModal'));
+
+            $(document).on('click', '.btnJustification', function () {
+                $activeJustificationRow = $(this).closest('tr');
+                const hidden = $activeJustificationRow.find('.row-justification');
+                $('#justificationTextArea').val(hidden.val() || '');
+                justificationModal.show();
+            });
+
+            $('#btnSaveJustification').on('click', function () {
+                if ($activeJustificationRow) {
+                    $activeJustificationRow.find('.row-justification').val($('#justificationTextArea').val());
+                    const hasText = ($('#justificationTextArea').val() || '').trim() !== '';
+                    $activeJustificationRow.find('.btnJustification')
+                        .toggleClass('btn-outline-secondary', !hasText)
+                        .toggleClass('btn-secondary text-white', hasText);
+                }
+                justificationModal.hide();
+            });
+
+            $('#btnSave').on('click', function () {
+                if (!validateGlCodesBeforeSubmit()) return;
+                showLoading();
+                ajaxPostJson('/Sne/Save', buildSneRequest(), function (r) {
+                    hideLoading();
+                    if (r.success) {
+                        showToast('success', r.message);
+                        setTimeout(() => window.location.reload(), 600);
+                    } else {
+                        showToast('error', r.message);
+                    }
+                }, function () {
+                    hideLoading();
+                    showToast('error', 'Failed to save SNE.');
+                });
+            });
+
+            $('#btnSubmit').on('click', function () {
+                if (!validateGlCodesBeforeSubmit()) return;
+                if (!confirm('Once submitted, this form cannot be edited. Are you sure you want to submit?')) return;
+                showLoading();
+                ajaxPostJson('/Sne/Submit', buildSneRequest(), function (r) {
+                    hideLoading();
+                    if (r.success) {
+                        showToast('success', r.message);
+                        setTimeout(() => window.location.reload(), 600);
+                    } else {
+                        showToast('error', r.message);
+                    }
+                }, function () {
+                    hideLoading();
+                    showToast('error', 'Failed to submit SNE.');
+                });
+            });
+        });
+    </script>
+}

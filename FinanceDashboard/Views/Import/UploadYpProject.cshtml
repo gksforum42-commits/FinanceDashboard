@@ -1,0 +1,584 @@
+@{
+    ViewData["Title"] = "Upload YpProject";
+}
+
+<div class="fade-in">
+    <div class="page-header">
+        <div>
+            <h2 class="page-title"><i class="bi bi-upload me-2"></i>Upload YpProject</h2>
+            <p class="text-muted mb-0">Upload Excel file containing YpProject data</p>
+        </div>
+        <div>
+            <a href="/Import/DownloadYpProjectSample" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Sample Format
+            </a>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>YpProject File Upload</h6>
+                </div>
+                <div class="card-body p-4">
+                    <div class="alert alert-info py-2 mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The Excel file must contain a sheet named <strong>ypproject</strong>. Column 1 = Fiscal Year.
+                        <a href="/Import/DownloadYpProjectSample" class="alert-link ms-1">Download sample</a> to see the exact format.
+                    </div>
+
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-3">
+                            <label class="form-label">Financial Year</label>
+                            <select id="financialYear" class="form-select" required>
+                                @for (int y = DateTime.Now.Year + 1; y >= 2020; y--)
+                                {
+                                    <option value="@y" selected="@(y == DateTime.Now.Year ? "selected" : null)">@y</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="upload-zone mb-3" id="dropZone">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <h5>Drag and Drop your Excel file here</h5>
+                            <p class="mb-2">or</p>
+                            <button type="button" class="btn btn-outline-primary btn-sm mb-2" onclick="document.getElementById('ypFile').click()">
+                                <i class="bi bi-folder2-open me-1"></i>Browse Files
+                            </button>
+                            <br /><small class="text-muted">Supported: .xlsx, .xls (Max 50MB)</small>
+                        </div>
+                        <input type="file" id="ypFile" name="ExcelFile" accept=".xlsx,.xls" style="display:none" />
+
+                        <div id="fileInfo" class="alert alert-success d-none">
+                            <i class="bi bi-file-earmark-excel me-2"></i>
+                            <strong id="fileName"></strong>&nbsp;(<span id="fileSize"></span>)
+                        </div>
+
+                        <div class="d-grid gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-secondary" id="previewBtn" onclick="previewFile()" disabled>
+                                <i class="bi bi-eye me-2"></i>Preview Data
+                            </button>
+                            <button type="button" class="btn btn-primary" id="importBtn" onclick="importFile()" disabled>
+                                <i class="bi bi-upload me-2"></i>Import Data
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="previewSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-table me-2"></i>Data Preview</h6>
+                        <div class="alert alert-warning d-none" id="validationErrors"></div>
+                        <div class="preview-table-container">
+                            <table class="table table-sm preview-table" id="previewTable">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-muted small"><span id="previewStats"></span></div>
+                    </div>
+
+                    <div id="progressSection" class="mt-4 d-none">
+                        <h6><i class="bi bi-hourglass-split me-2"></i>Import Progress</h6>
+
+                        <ul class="list-group list-group-flush mb-3">
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-1">
+                                <span id="imp-icon-1"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 1: Upload &amp; read Excel file</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-1">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-2">
+                                <span id="imp-icon-2"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 2: Clear existing records for the selected year</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-2">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-3">
+                                <span id="imp-icon-3"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 3: Bulk insert new records</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-3">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="imp-row-4">
+                                <span id="imp-icon-4"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 4: Save import history</span>
+                                <span class="ms-auto badge bg-secondary" id="imp-badge-4">Waiting</span>
+                            </li>
+                        </ul>
+
+                        <div class="progress mb-2" style="height:20px;">
+                            <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                 style="width:0%" role="progressbar"></div>
+                        </div>
+                        <div id="progressStatus" class="text-center mt-2 text-muted">Ready…</div>
+
+                        <div id="importErrorAlert" class="alert alert-danger mt-3 d-none">
+                            <i class="bi bi-exclamation-circle me-2"></i><span></span>
+                        </div>
+
+                        <div id="importSuccessAlert" class="alert alert-success mt-3 d-none">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong id="importSuccessMsg"></strong>
+                            <div class="mt-2">
+                                <a href="/Import/History" class="btn btn-success btn-sm me-2">
+                                    <i class="bi bi-clock-history me-1"></i>View History
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Standalone Update Data section --}}
+    <div class="row justify-content-center mt-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-success">
+                <div class="card-header bg-success bg-opacity-10">
+                    <h6 class="mb-0 text-success"><i class="bi bi-database-fill-up me-2"></i>Update Data</h6>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted mb-3">
+                        After importing YpProject data, click the button below to rebuild the <strong>devExp</strong> dataset
+                        for the selected Financial Year. This clears existing <strong>devExp</strong> records for that year,
+                        then merges <strong>ypProject</strong> with <strong>devOb</strong> to rebuild them, and finally
+                        updates <strong>pndSector</strong> from <strong>pdSec</strong>.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label">Financial Year</label>
+                        <select id="updateFinancialYear" class="form-select">
+                            @for (int y = DateTime.Now.Year + 1; y >= 2020; y--)
+                            {
+                                <option value="@y" selected="@(y == DateTime.Now.Year ? "selected" : null)">@y</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="button" class="btn btn-success btn-lg" id="updateDataBtn" onclick="updateYpProjectData()">
+                            <i class="bi bi-arrow-repeat me-2"></i>Update Data
+                        </button>
+                    </div>
+
+                    <div id="updateStepsSection" class="mt-4 d-none">
+                        <h6 class="mb-3"><i class="bi bi-list-check me-2"></i>Update Steps</h6>
+                        <ul class="list-group list-group-flush mb-3" id="updateStepsList">
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-1">
+                                <span class="step-icon" id="step-icon-1"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 1: Delete existing devExp records for the selected year</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-1">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-2">
+                                <span class="step-icon" id="step-icon-2"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 2: Merge ypProject with devOb into devExp</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-2">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-3">
+                                <span class="step-icon" id="step-icon-3"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 3: Update gl_Object from WBS Element</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-3">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-4">
+                                <span class="step-icon" id="step-icon-4"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 4: Update gldesc from GL_Codes</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-4">Waiting</span>
+                            </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-5">
+                                <span class="step-icon" id="step-icon-5"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 5: Update PnD Sector from pdSec</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-5">Waiting</span>
+                            </li>
+                        </ul>
+
+                        <div class="progress mb-2" style="height:20px;">
+                            <div id="updateOverallBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                                 style="width:0%" role="progressbar"></div>
+                        </div>
+                        <div id="updateOverallStatus" class="text-center text-muted small mb-3">Starting…</div>
+
+                        <div id="updateSuccessResult" class="alert alert-success d-none">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong id="updateSuccessMsg"></strong>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetUpdateSection()">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Run Again
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="updateErrorResult" class="alert alert-danger d-none">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>Update failed: </strong><span id="updateErrorMsg"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<style>
+    .spin-icon { display: inline-block; animation: spin 1s linear infinite; }
+    @@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+<script>
+    var ypSelectedFile = null;
+
+    function safeJsonYp(response) {
+        if (response.status === 401 || response.redirected) {
+            window.location.href = '/Account/Login';
+            return Promise.reject(null);
+        }
+        if (response.status === 413) {
+            return Promise.reject(new Error('File is too large. Maximum allowed size is 50 MB. Please reduce the file size and try again.'));
+        }
+        var ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            return Promise.reject(new Error('Server error (HTTP ' + response.status + '). Please try again or contact support.'));
+        }
+        return response.json();
+    }
+
+    document.getElementById('ypFile').addEventListener('change', function () {
+        if (this.files && this.files.length > 0) handleYpFile(this.files[0]);
+    });
+
+    var ypDropZone = document.getElementById('dropZone');
+    ypDropZone.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.add('dragover'); });
+    ypDropZone.addEventListener('dragleave', function (e) { e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover'); });
+    ypDropZone.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation(); this.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleYpFile(e.dataTransfer.files[0]);
+    });
+
+    function handleYpFile(file) {
+        var ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+        if (ext !== '.xlsx' && ext !== '.xls') { showToast('error', 'Invalid file type. Only .xlsx and .xls allowed.'); return; }
+        if (file.size > 52428800) { showToast('error', 'File size exceeds 50 MB limit.'); return; }
+        ypSelectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+        document.getElementById('fileInfo').classList.remove('d-none');
+        document.getElementById('previewBtn').disabled = false;
+        document.getElementById('importBtn').disabled = false;
+    }
+
+    function previewFile() {
+        if (!ypSelectedFile) return;
+        var fd = new FormData();
+        fd.append('ExcelFile', ypSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', 'YpProject');
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+        showLoading();
+        fetch('/Import/Preview', { method: 'POST', body: fd })
+            .then(safeJsonYp)
+            .then(function (r) {
+                hideLoading();
+                if (r.success) { renderYpPreview(r.preview); } else { showToast('error', r.message); }
+            })
+            .catch(function (err) { hideLoading(); if (err) showToast('error', err.message || 'Preview failed.'); });
+    }
+
+    function renderYpPreview(preview) {
+        document.getElementById('previewSection').classList.remove('d-none');
+        document.getElementById('previewStats').textContent = 'Total: ' + preview.totalRecords + ' | Valid: ' + preview.validRecords;
+        if (preview.validationErrors && preview.validationErrors.length > 0) {
+            var e = document.getElementById('validationErrors');
+            e.innerHTML = '<strong>Errors:</strong><br/>' + preview.validationErrors.join('<br/>');
+            e.classList.remove('d-none');
+        }
+        var headers = preview.previewData && preview.previewData.length > 0 ? Object.keys(preview.previewData[0]) : [];
+        document.querySelector('#previewTable thead').innerHTML = headers.length ? '<tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>' : '';
+        document.querySelector('#previewTable tbody').innerHTML = preview.previewData.map(function (row) {
+            return '<tr>' + headers.map(function (h) { return '<td>' + (row[h] != null ? row[h] : '') + '</td>'; }).join('') + '</tr>';
+        }).join('');
+        document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function importFile() {
+        if (!ypSelectedFile || !confirm('Import this YpProject file?\n\nThis will DELETE existing YpProject records for the selected Financial Year and insert fresh records from the file.')) return;
+
+        document.getElementById('progressSection').classList.remove('d-none');
+        document.getElementById('importErrorAlert').classList.add('d-none');
+        document.getElementById('importSuccessAlert').classList.add('d-none');
+        document.getElementById('importBtn').disabled = true;
+        document.getElementById('previewBtn').disabled = true;
+        setImpStep(0, null);
+
+        setImpStep(1, 'running');
+        setImpProgress(10, 'Uploading file to server…');
+
+        var fd = new FormData();
+        fd.append('ExcelFile', ypSelectedFile);
+        fd.append('FinancialYear', document.getElementById('financialYear').value);
+        fd.append('ImportType', 'YpProject');
+        fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+
+        var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+        fetch('/Import/Import', { method: 'POST', body: fd })
+            .then(safeJsonYp)
+            .then(function (r) {
+                if (!r || !r.success) {
+                    impFail(1, (r && r.message) ? r.message : 'Import failed to start.');
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                    return;
+                }
+
+                setImpStep(1, 'done');
+                setImpStep(2, 'running');
+                setImpStep(3, 'running');
+                setImpProgress(20, 'File received. Importing records…');
+
+                runImportChunks(r.importId, token, r.financialYear);
+            })
+            .catch(function (err) {
+                if (!err) return;
+                impFail(1, err.message || 'An unexpected error occurred uploading the file.');
+                document.getElementById('importBtn').disabled = false;
+                document.getElementById('previewBtn').disabled = false;
+            });
+    }
+
+    function runImportChunks(importId, token, financialYear) {
+        var ypCount = 0;
+        var startRow = 2;
+
+        function nextChunk() {
+            var url = '/Import/ImportChunk?importId=' + encodeURIComponent(importId)
+                + '&sheetKind=YpProject'
+                + '&financialYear=' + encodeURIComponent(financialYear)
+                + '&importType=YpProject'
+                + '&startRow=' + encodeURIComponent(startRow);
+
+            fetch(url, { method: 'POST', headers: { 'RequestVerificationToken': token } })
+                .then(function (r) {
+                    if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+                    return r.json();
+                })
+                .then(function (r) {
+                    if (!r) return;
+                    if (!r.success) {
+                        impFail(3, r.message || 'Import failed.');
+                        document.getElementById('importBtn').disabled = false;
+                        document.getElementById('previewBtn').disabled = false;
+                        return;
+                    }
+
+                    ypCount += r.inserted;
+                    var pct = Math.min(90, 20 + Math.round(ypCount / 3000));
+                    setImpProgress(pct, 'Importing records… ' + ypCount.toLocaleString() + ' processed so far');
+
+                    if (r.done) {
+                        finalize();
+                    } else {
+                        startRow = r.nextStartRow;
+                        nextChunk();
+                    }
+                })
+                .catch(function (err) {
+                    impFail(3, (err && err.message) || 'Network error during import. Please retry.');
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                });
+        }
+
+        function finalize() {
+            setImpStep(2, 'done');
+            setImpStep(3, 'done');
+            setImpStep(4, 'running');
+            setImpProgress(95, 'Saving import history…');
+
+            fetch('/Import/ImportFinalize?importId=' + encodeURIComponent(importId) + '&originalCount=0&berCount=0&ypProjectCount=' + ypCount, {
+                method: 'POST',
+                headers: { 'RequestVerificationToken': token }
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (r) {
+                    setImpStep(4, 'done');
+                    setImpProgress(100, 'Import complete!');
+                    var msg = (r && r.message) || ('Import completed. YpProject records: ' + ypCount);
+                    document.getElementById('importSuccessMsg').textContent = msg;
+                    document.getElementById('importSuccessAlert').classList.remove('d-none');
+                    showToast('success', msg);
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                })
+                .catch(function () {
+                    impFail(4, 'Records were imported but saving import history failed. Please refresh and check import history.');
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                });
+        }
+
+        nextChunk();
+    }
+
+    function setImpProgress(pct, msg) {
+        var bar = document.getElementById('importProgressBar');
+        var display = (Math.round(pct * 10) / 10).toString();
+        bar.style.width = pct + '%';
+        bar.textContent = display + '%';
+        if (pct >= 100) bar.classList.remove('progress-bar-animated');
+        document.getElementById('progressStatus').textContent = msg;
+    }
+
+    function setImpStep(stepNum, state) {
+        var steps = stepNum === 0 ? [1, 2, 3, 4] : [stepNum];
+        steps.forEach(function (n) {
+            var icon  = document.getElementById('imp-icon-' + n);
+            var badge = document.getElementById('imp-badge-' + n);
+            var row   = document.getElementById('imp-row-' + n);
+            if (!icon || !badge) return;
+            if (state === null) {
+                icon.innerHTML  = '<i class="bi bi-circle text-muted"></i>';
+                badge.textContent = 'Waiting'; badge.className = 'ms-auto badge bg-secondary';
+                row.classList.remove('list-group-item-success', 'list-group-item-danger', 'list-group-item-warning');
+            } else if (state === 'running') {
+                icon.innerHTML  = '<i class="bi bi-arrow-repeat text-primary spin-icon"></i>';
+                badge.textContent = 'Running…'; badge.className = 'ms-auto badge bg-primary';
+                row.classList.add('list-group-item-warning');
+            } else if (state === 'done') {
+                icon.innerHTML  = '<i class="bi bi-check-circle-fill text-success"></i>';
+                badge.textContent = 'Done'; badge.className = 'ms-auto badge bg-success';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-success');
+            } else if (state === 'error') {
+                icon.innerHTML  = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                badge.textContent = 'Failed'; badge.className = 'ms-auto badge bg-danger';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-danger');
+            }
+        });
+    }
+
+    function impFail(stepNum, message) {
+        if (stepNum > 0) setImpStep(stepNum, 'error');
+        setImpProgress(100, 'Failed.');
+        var a = document.getElementById('importErrorAlert');
+        a.querySelector('span').textContent = message;
+        a.classList.remove('d-none');
+        a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        showToast('error', message);
+    }
+
+    function updateYpProjectData() {
+        var fy = document.getElementById('updateFinancialYear').value;
+        if (!confirm('Update Data for FY ' + fy + '?\n\nThis will clear devExp records for this year and rebuild them by merging ypProject with devOb.\n\nContinue?')) return;
+
+        var btn = document.getElementById('updateDataBtn');
+        btn.disabled = true;
+
+        document.getElementById('updateStepsSection').classList.remove('d-none');
+        document.getElementById('updateSuccessResult').classList.add('d-none');
+        document.getElementById('updateErrorResult').classList.add('d-none');
+        setUpdateStep(0, null);
+        setUpdateOverall(0, 'Starting…');
+
+        var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+        runStep(1, token, fy, function () {
+            runStep(2, token, fy, function () {
+                runStep(3, token, fy, function () {
+                    runStep(4, token, fy, function () {
+                        runStep(5, token, fy, function (r5) {
+                            setUpdateOverall(100, 'All steps completed successfully!');
+                            var msg = 'devExp updated for FY ' + fy + '. pndSector updated for ' + (r5.rowsCopied || 0) + ' records.';
+                            document.getElementById('updateSuccessMsg').textContent = msg;
+                            document.getElementById('updateSuccessResult').classList.remove('d-none');
+                            showToast('success', msg);
+                            btn.disabled = false;
+                        }, btn);
+                    }, btn);
+                }, btn);
+            }, btn);
+        }, btn);
+    }
+
+    function runStep(step, token, fy, onSuccess, btn) {
+        setUpdateStep(step, 'running');
+        setUpdateOverall(Math.round((step - 1) * 100 / 5) + 5, 'Running Step ' + step + ' of 5…');
+
+        fetch('/Import/UpdateYpProjectStep?step=' + step + '&financialYear=' + encodeURIComponent(fy), {
+            method: 'POST',
+            headers: { 'RequestVerificationToken': token }
+        })
+        .then(function (r) {
+            if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+            var ct = r.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) return Promise.reject(new Error('Server error (HTTP ' + r.status + ').'));
+            return r.json();
+        })
+        .then(function (r) {
+            if (!r) return;
+            if (r.success) {
+                setUpdateStep(step, 'done');
+                setUpdateOverall(Math.round(step * 100 / 5), 'Step ' + step + ' of 5 complete');
+                if (onSuccess) onSuccess(r);
+            } else {
+                setUpdateStep(step, 'error');
+                setUpdateOverall(Math.round((step - 1) * 100 / 5), 'Failed at Step ' + step);
+                document.getElementById('updateErrorMsg').textContent = r.message || 'Unknown error.';
+                document.getElementById('updateErrorResult').classList.remove('d-none');
+                showToast('error', 'Step ' + step + ' failed: ' + (r.message || ''));
+                if (btn) btn.disabled = false;
+            }
+        })
+        .catch(function (err) {
+            if (!err) return;
+            setUpdateStep(step, 'error');
+            setUpdateOverall(0, 'Failed.');
+            document.getElementById('updateErrorMsg').textContent = err.message || 'An unexpected error occurred.';
+            document.getElementById('updateErrorResult').classList.remove('d-none');
+            showToast('error', err.message || 'An unexpected error occurred.');
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    function setUpdateStep(stepNum, state) {
+        var steps = stepNum === 0 ? [1, 2, 3, 4, 5] : [stepNum];
+        steps.forEach(function (n) {
+            var icon = document.getElementById('step-icon-' + n);
+            var badge = document.getElementById('step-badge-' + n);
+            var row = document.getElementById('step-row-' + n);
+            if (!icon || !badge) return;
+            if (state === null || state === undefined) {
+                icon.innerHTML = '<i class="bi bi-circle text-muted"></i>';
+                badge.textContent = 'Waiting'; badge.className = 'ms-auto badge bg-secondary';
+                row.classList.remove('list-group-item-success', 'list-group-item-danger', 'list-group-item-warning');
+            } else if (state === 'running') {
+                icon.innerHTML = '<i class="bi bi-arrow-repeat text-primary spin-icon"></i>';
+                badge.textContent = 'Running…'; badge.className = 'ms-auto badge bg-primary';
+                row.classList.add('list-group-item-warning');
+            } else if (state === 'done') {
+                icon.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+                badge.textContent = 'Done'; badge.className = 'ms-auto badge bg-success';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-success');
+            } else if (state === 'error') {
+                icon.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                badge.textContent = 'Failed'; badge.className = 'ms-auto badge bg-danger';
+                row.classList.remove('list-group-item-warning'); row.classList.add('list-group-item-danger');
+            }
+        });
+    }
+
+    function setUpdateOverall(pct, msg) {
+        var bar = document.getElementById('updateOverallBar');
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        if (pct >= 100) bar.classList.remove('progress-bar-animated');
+        document.getElementById('updateOverallStatus').textContent = msg;
+    }
+
+    function resetUpdateSection() {
+        document.getElementById('updateStepsSection').classList.add('d-none');
+        document.getElementById('updateSuccessResult').classList.add('d-none');
+        document.getElementById('updateErrorResult').classList.add('d-none');
+        setUpdateStep(0, null);
+        setUpdateOverall(0, 'Starting…');
+        document.getElementById('updateDataBtn').disabled = false;
+    }
+</script>
+}

@@ -16,23 +16,35 @@ namespace FinanceDashboard.Controllers
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IAuditRepository _auditRepository;
         private readonly ILogger<AdministrationController> _logger;
+        private readonly ApplicationDbContext _context;
 
         public AdministrationController(
             UserManager<ApplicationUser> userManager,
             RoleManager<IdentityRole> roleManager,
             IAuditRepository auditRepository,
-            ILogger<AdministrationController> logger)
+            ILogger<AdministrationController> logger,
+            ApplicationDbContext context)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _auditRepository = auditRepository;
             _logger = logger;
+            _context = context;
         }
 
         // Users
         public async Task<IActionResult> Users()
         {
             var users = await _userManager.Users.ToListAsync();
+
+            var roleMap = new Dictionary<string, string>();
+            foreach (var user in users)
+            {
+                var roles = await _userManager.GetRolesAsync(user);
+                roleMap[user.Id] = roles.Count > 0 ? string.Join(", ", roles) : "User";
+            }
+            ViewBag.UserRoles = roleMap;
+
             return View(users);
         }
 
@@ -104,9 +116,13 @@ namespace FinanceDashboard.Controllers
                 var result = await _userManager.CreateAsync(user, model.Password);
                 if (result.Succeeded)
                 {
-                    if (!string.IsNullOrEmpty(model.Role))
+                    var rolesToAssign = (model.Roles != null && model.Roles.Count > 0)
+                        ? model.Roles.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct().ToList()
+                        : (!string.IsNullOrEmpty(model.Role) ? new List<string> { model.Role } : new List<string>());
+
+                    if (rolesToAssign.Count > 0)
                     {
-                        await _userManager.AddToRoleAsync(user, model.Role);
+                        await _userManager.AddToRolesAsync(user, rolesToAssign);
                     }
 
                     var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
@@ -117,7 +133,7 @@ namespace FinanceDashboard.Controllers
                         Action = "Create",
                         EntityType = "User",
                         EntityId = user.Id,
-                        NewValues = $"Created user {model.Email} with role {model.Role}",
+                        NewValues = $"Created user {model.Email} with role(s) {string.Join(", ", rolesToAssign)}",
                         IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
                         Status = "Success"
                     });
@@ -151,12 +167,17 @@ namespace FinanceDashboard.Controllers
                 var result = await _userManager.UpdateAsync(user);
                 if (result.Succeeded)
                 {
-                    // Update role
+                    // Update roles
                     var currentRoles = await _userManager.GetRolesAsync(user);
                     await _userManager.RemoveFromRolesAsync(user, currentRoles);
-                    if (!string.IsNullOrEmpty(model.Role))
+
+                    var rolesToAssign = (model.Roles != null && model.Roles.Count > 0)
+                        ? model.Roles.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct().ToList()
+                        : (!string.IsNullOrEmpty(model.Role) ? new List<string> { model.Role } : new List<string>());
+
+                    if (rolesToAssign.Count > 0)
                     {
-                        await _userManager.AddToRoleAsync(user, model.Role);
+                        await _userManager.AddToRolesAsync(user, rolesToAssign);
                     }
 
                     var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
@@ -293,12 +314,31 @@ namespace FinanceDashboard.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAuditLogs(string? userId, string? action, DateTime? fromDate, DateTime? toDate, int page = 1, int pageSize = 50)
+        public async Task<IActionResult> GetAuditLogs(string? userId, string? auditAction, string? fromDate, string? toDate, int page = 1, int pageSize = 50)
         {
             try
             {
-                var logs = await _auditRepository.GetAuditLogsAsync(userId, action, fromDate, toDate, page, pageSize);
-                var count = await _auditRepository.GetAuditLogsCountAsync(userId, action, fromDate, toDate);
+                // Normalize empty strings to null
+                auditAction = string.IsNullOrWhiteSpace(auditAction) ? null : auditAction.Trim();
+                fromDate = string.IsNullOrWhiteSpace(fromDate) ? null : fromDate.Trim();
+                toDate = string.IsNullOrWhiteSpace(toDate) ? null : toDate.Trim();
+
+                // Parse dates from string format (YYYY-MM-DD)
+                DateTime? parsedFromDate = null;
+                DateTime? parsedToDate = null;
+
+                if (!string.IsNullOrEmpty(fromDate) && DateTime.TryParse(fromDate, out var from))
+                {
+                    parsedFromDate = from;
+                }
+
+                if (!string.IsNullOrEmpty(toDate) && DateTime.TryParse(toDate, out var to))
+                {
+                    parsedToDate = to;
+                }
+
+                var logs = await _auditRepository.GetAuditLogsAsync(userId, auditAction, parsedFromDate, parsedToDate, page, pageSize);
+                var count = await _auditRepository.GetAuditLogsCountAsync(userId, auditAction, parsedFromDate, parsedToDate);
 
                 return Json(new
                 {
@@ -327,6 +367,9 @@ namespace FinanceDashboard.Controllers
             public string? Designation { get; set; }
             public bool IsActive { get; set; } = true;
             public string? Role { get; set; }
+            // Supports assigning multiple roles at once (e.g. Budget Officer = DepartmentUser + SNEDepartmentUser).
+            // If provided, this takes precedence over the single Role property.
+            public List<string>? Roles { get; set; }
         }
 
         public class UpdateUserModel
@@ -337,6 +380,9 @@ namespace FinanceDashboard.Controllers
             public string? Designation { get; set; }
             public bool IsActive { get; set; } = true;
             public string? Role { get; set; }
+            // Supports assigning multiple roles at once (e.g. Budget Officer = DepartmentUser + SNEDepartmentUser).
+            // If provided, this takes precedence over the single Role property.
+            public List<string>? Roles { get; set; }
         }
 
         public class CreateRoleModel

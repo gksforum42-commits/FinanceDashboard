@@ -70,6 +70,24 @@ namespace FinanceDashboard.Services
                 identity.AddClaim(new Claim(ClaimTypes.Role, role));
             }
 
+            // Synchronize the Department claim(s) (used to restrict data access for department-level users).
+            // ApplicationUser.Department may hold multiple comma-separated department codes.
+            foreach (var claim in identity.FindAll("Department").ToList())
+            {
+                identity.RemoveClaim(claim);
+            }
+            if (!string.IsNullOrWhiteSpace(user.Department))
+            {
+                var departments = user.Department
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var department in departments)
+                {
+                    identity.AddClaim(new Claim("Department", department));
+                }
+            }
+
             return new ClaimsPrincipal(identity);
         }
     }

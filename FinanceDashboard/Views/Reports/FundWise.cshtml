@@ -79,11 +79,16 @@
             <thead class="table-dark">
                 <tr>
                     <th>Grant</th>
-                    <th class="text-end">Allocated Budget</th>
+                    <th class="text-end">Allocation</th>
                     <th class="text-end">Budget Grant</th>
                     <th class="text-end">Releases</th>
                     <th class="text-end">% Release</th>
-                    <th class="text-end">Total Expenditure</th>
+                    <th class="text-end">Supplementary</th>
+                    <th class="text-end">Reapp (+)</th>
+                    <th class="text-end">Reapp (-)</th>
+                    <th class="text-end">Surrender</th>
+                    <th class="text-end">Final Budget</th>
+                    <th class="text-end">Expenditure</th>
                     <th class="text-end">% Utilization</th>
                     <th class="text-end">Balance</th>
                 </tr>
@@ -210,6 +215,7 @@
         tfoot.empty();
 
         let totAllocated = 0, totGrant = 0, totReleases = 0, totExp = 0, totBalance = 0;
+        let totSupp = 0, totReappPlus = 0, totReappMinus = 0, totSurr = 0, totFinalGrant = 0;
         window._fundPdfRows = [];   // store plain-text rows for PDF export
 
         data.forEach(function (row) {
@@ -223,6 +229,11 @@
             totReleases  += row.totalReleases;
             totExp       += row.totalActualExpenditure;
             totBalance   += row.totalBalance;
+            totSupp        += row.totalSupplementaryGrant;
+            totReappPlus   += row.totalReappropriationPlus;
+            totReappMinus  += row.totalReappropriationMinus;
+            totSurr        += row.totalSurrender;
+            totFinalGrant  += row.totalFinalGrant;
 
             const grantLabel = row.fundCode + (row.fundDes ? '\n' + row.fundDes : '');
 
@@ -233,6 +244,11 @@
                 fmtC(row.totalBudgetGrant),
                 fmtC(row.totalReleases),
                 relPct + '%',
+                fmtC(row.totalSupplementaryGrant),
+                fmtC(row.totalReappropriationPlus),
+                fmtC(row.totalReappropriationMinus),
+                fmtC(row.totalSurrender),
+                fmtC(row.totalFinalGrant),
                 fmtC(row.totalActualExpenditure),
                 utilPct + '%',
                 fmtC(row.totalBalance)
@@ -247,6 +263,11 @@
                 '<td class="text-end">' + fmtC(row.totalBudgetGrant) + '</td>' +
                 '<td class="text-end">' + fmtC(row.totalReleases) + '</td>' +
                 '<td class="text-end ' + relCls + '">' + relPct + '%</td>' +
+                '<td class="text-end">' + fmtC(row.totalSupplementaryGrant) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationPlus) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationMinus) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalSurrender) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalFinalGrant) + '</td>' +
                 '<td class="text-end text-primary">' + fmtC(row.totalActualExpenditure) + '</td>' +
                 '<td class="text-end ' + utilCls + '">' + utilPct + '%</td>' +
                 '<td class="text-end">' + fmtC(row.totalBalance) + '</td>' +
@@ -256,11 +277,12 @@
 
         // Totals footer row
         const totalRelPct  = totAllocated > 0 ? (totReleases / totAllocated * 100).toFixed(1) : '0.0';
-        const totalUtilPct = totGrant > 0     ? (totExp / totGrant * 100).toFixed(1)           : '0.0';
+        const totalUtilPct = totFinalGrant > 0 ? (totExp / totFinalGrant * 100).toFixed(1)     : '0.0';
         const footRow = [
             'Total',
-            fmtC(totAllocated), fmtC(totGrant), fmtC(totReleases),
-            totalRelPct + '%',  fmtC(totExp),   totalUtilPct + '%', fmtC(totBalance)
+            fmtC(totAllocated), fmtC(totGrant), fmtC(totReleases), totalRelPct + '%',
+            fmtC(totSupp), fmtC(totReappPlus), fmtC(totReappMinus), fmtC(totSurr), fmtC(totFinalGrant),
+            fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)
         ];
         window._fundPdfRows.push(footRow);   // last row = totals (styled bold in PDF)
 
@@ -271,6 +293,11 @@
             '<td class="text-end"><strong>' + fmtC(totGrant) + '</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totReleases) + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalRelPct) + '"><strong>' + totalRelPct + '%</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSupp) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappPlus) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappMinus) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSurr) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totFinalGrant) + '</strong></td>' +
             '<td class="text-end text-primary"><strong>' + fmtC(totExp) + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalUtilPct) + '"><strong>' + totalUtilPct + '%</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totBalance) + '</strong></td>' +
@@ -313,40 +340,85 @@
 
     function exportPdfReport() {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+        const pageW = doc.internal.pageSize.width;
 
         const year = $('#filterYear').val() || 'All Years';
         const fund = $('#filterFund').val() || 'All Funds';
         const now  = new Date().toLocaleDateString('en-PK');
 
+        // Colour scheme (matches ObjectWise / CostCenterWise reports)
+        const C_NAVY    = [11, 43, 82];
+        const C_WHITE   = [255, 255, 255];
+        const C_DARK    = [25, 25, 25];
+        const C_ALTROW  = [248, 250, 255];
+        const C_TOTAL   = [220, 230, 245];
+
         // Title block
+        doc.setFillColor(...C_NAVY);
+        doc.rect(0, 0, pageW, 30, 'F');
         doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-        doc.text('Fund Wise Budget Report', 40, 40);
+        doc.setTextColor(...C_WHITE);
+        doc.text('Fund Wise Budget Report', 40, 20);
         doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-        doc.text('Financial Year: ' + year + '   |   Fund: ' + fund, 40, 56);
-        doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 56, { align: 'right' });
+        doc.setTextColor(...C_DARK);
+        doc.text('Financial Year: ' + year + '   |   Fund: ' + fund, 40, 46);
+        doc.text('Generated: ' + now, doc.internal.pageSize.width - 40, 46, { align: 'right' });
 
         // Build rows from the stored pdfRows array (set during renderTable)
-        const headers = [['Grant', 'Allocated Budget', 'Budget Grant', 'Releases',
-                          '% Release', 'Total Expenditure', '% Utilization', 'Balance']];
+        const headers = [['Grant', 'Allocation', 'Budget Grant', 'Releases', '% Release',
+                          'Supplementary', 'Reapp (+)', 'Reapp (-)', 'Surrender', 'Final Budget',
+                          'Expenditure', '% Utilization', 'Balance']];
+
+        // Proportional column weights scaled to the page width so the table always fits on one page.
+        const L_MARGIN = 40, R_MARGIN = 40;
+        const colWeights = [140, 75, 75, 70, 48, 70, 65, 65, 65, 75, 75, 55, 75];
+        const weightSum = colWeights.reduce((a, b) => a + b, 0);
+        const tableW = pageW - L_MARGIN - R_MARGIN;
+        const colWidths = colWeights.map(w => (w / weightSum) * tableW);
+        const lastRowIndex = (window._fundPdfRows || []).length - 1;
 
         doc.autoTable({
             head: headers,
             body: window._fundPdfRows || [],
-            startY: 70,
-            styles: { fontSize: 7, cellPadding: 3 },
-            headStyles: { fillColor: [30, 50, 80], textColor: 255, fontStyle: 'bold' },
+            startY: 58,
+            margin: { left: L_MARGIN, right: R_MARGIN },
+            tableWidth: tableW,
+            horizontalPageBreak: false,
+            styles: {
+                fontSize: 7,
+                cellPadding: 3,
+                lineColor: [220, 225, 235],
+                lineWidth: 0.3,
+                textColor: C_DARK
+            },
+            headStyles: {
+                fillColor: C_NAVY,
+                textColor: C_WHITE,
+                fontStyle: 'bold',
+                halign: 'center'
+            },
+            alternateRowStyles: { fillColor: C_ALTROW },
             columnStyles: {
-                0: { cellWidth: 110 },
-                1: { halign: 'right' }, 2: { halign: 'right' },
-                3: { halign: 'right' }, 4: { halign: 'right' },
-                5: { halign: 'right' }, 6: { halign: 'right' },
-                7: { halign: 'right' }
+                0: { cellWidth: colWidths[0] },
+                1: { cellWidth: colWidths[1],  halign: 'right' },
+                2: { cellWidth: colWidths[2],  halign: 'right' },
+                3: { cellWidth: colWidths[3],  halign: 'right' },
+                4: { cellWidth: colWidths[4],  halign: 'right' },
+                5: { cellWidth: colWidths[5],  halign: 'right' },
+                6: { cellWidth: colWidths[6],  halign: 'right' },
+                7: { cellWidth: colWidths[7],  halign: 'right' },
+                8: { cellWidth: colWidths[8],  halign: 'right' },
+                9: { cellWidth: colWidths[9],  halign: 'right' },
+                10: { cellWidth: colWidths[10], halign: 'right' },
+                11: { cellWidth: colWidths[11], halign: 'right' },
+                12: { cellWidth: colWidths[12], halign: 'right' }
             },
             didParseCell: function (data) {
-                if (window._fundPdfRows && data.row.index === window._fundPdfRows.length - 1) {
+                if (data.row.index === lastRowIndex) {
                     data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [240, 240, 240];
+                    data.cell.styles.fillColor = C_TOTAL;
+                    data.cell.styles.textColor = C_DARK;
                 }
             },
             didDrawPage: function () {
@@ -370,11 +442,13 @@
     }
 
     function exportExcel() {
-        const year = $('#filterYear').val() || '';
-        const fund = $('#filterFund').val() || '';
+        const year   = $('#filterYear').val()   || '';
+        const sector = $('#filterSector').val() || '';
+        const fund   = $('#filterFund').val()   || '';
         window.location.href = '/Reports/ExportExcel?reportType=fund'
-            + (year ? '&financialYear=' + year : '')
-            + (fund ? '&fundCode=' + fund : '');
+            + (year   ? '&financialYear=' + year   : '')
+            + (sector ? '&sector=' + encodeURIComponent(sector) : '')
+            + (fund   ? '&fundCode=' + fund : '');
     }
 
     // Helpers

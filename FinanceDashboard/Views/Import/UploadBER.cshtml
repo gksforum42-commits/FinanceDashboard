@@ -205,6 +205,11 @@
                                 <span>Step 6: Update Department Names</span>
                                 <span class="ms-auto badge bg-secondary" id="step-badge-6">Waiting</span>
                             </li>
+                            <li class="list-group-item d-flex align-items-center gap-2" id="step-row-7">
+                                <span class="step-icon" id="step-icon-7"><i class="bi bi-circle text-muted"></i></span>
+                                <span>Step 7: Update 9-Item classification</span>
+                                <span class="ms-auto badge bg-secondary" id="step-badge-7">Waiting</span>
+                            </li>
                         </ul>
 
                         <div class="progress mb-2" style="height:20px;">
@@ -328,7 +333,6 @@
         document.getElementById('previewBtn').disabled = true;
         setImpStep(0, null);
 
-        // ── Step 1: Upload & preview (server reads the file) ────────────
         setImpStep(1, 'running');
         setImpProgress(10, 'Uploading file to server…');
 
@@ -338,70 +342,139 @@
         fd.append('ImportType', document.getElementById('importType').value);
         fd.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
 
-        fetch('/Import/Preview', { method: 'POST', body: fd })
+        // This request only uploads the file and creates the ImportHistory row — it does NOT
+        // start a background thread. On constrained shared hosting (e.g. MonsterASP, which has
+        // no "Always On"/keep-alive), a fire-and-forget background import gets silently killed
+        // once the triggering request completes, leaving the UI frozen forever with no error.
+        // Instead, the browser now drives the whole import itself by calling /Import/ImportChunk
+        // repeatedly — each call is a normal short-lived HTTP request/response, so there is
+        // nothing for the host to kill mid-import.
+        var token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+        fetch('/Import/Import', { method: 'POST', body: fd })
             .then(safeJsonBer)
             .then(function (r) {
-                if (!r.success) { impFail(1, r.message); return Promise.reject(null); }
-                setImpStep(1, 'done');
-                setImpProgress(25, 'File validated. Clearing old staging data…');
-
-                // ── Step 2: Clear old data (happens inside Import on the server)
-                setImpStep(2, 'running');
-                setImpProgress(35, 'Deleting old BER staging data (TRUNCATE)…');
-
-                // ── Step 3: Bulk insert ──────────────────────────────────
-                setImpStep(3, 'running');
-                setImpProgress(45, 'Inserting rows — this may take a minute for large files…');
-
-                return fetch('/Import/Import', {
-                    method: 'POST',
-                    headers: { 'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value }
-                });
-            })
-            .then(function (r) {
-                if (!r) return Promise.reject(null);
-                if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
-                if (r.status === 413) return Promise.reject(new Error('File is too large (max 50 MB).'));
-                if (!r.ok) return Promise.reject(new Error('Import failed (HTTP ' + r.status + ').'));
-                return r.json();
-            })
-            .then(function (r) {
-                if (!r) return;
-                if (r.success) {
-                    setImpStep(2, 'done');
-                    setImpStep(3, 'done');
-
-                    // ── Step 4: Save history ─────────────────────────────
-                    setImpStep(4, 'running');
-                    setImpProgress(90, 'Saving import history…');
-                    setTimeout(function () {
-                        setImpStep(4, 'done');
-                        setImpProgress(100, 'Import complete!');
-
-                        var msg = 'Import completed. BER records: ' + r.berCount;
-                        if (r.originalCount > 0) msg += ', Original Budget: ' + r.originalCount;
-                        document.getElementById('importSuccessMsg').textContent = msg;
-                        document.getElementById('importSuccessAlert').classList.remove('d-none');
-                        showToast('success', msg);
-                    }, 300);
-                } else {
-                    impFail(3, r.message);
+                if (!r || !r.success) {
+                    impFail(1, (r && r.message) ? r.message : 'Import failed to start.');
                     document.getElementById('importBtn').disabled = false;
                     document.getElementById('previewBtn').disabled = false;
+                    return;
                 }
+
+                setImpStep(1, 'done');
+                setImpStep(2, 'running');
+                setImpStep(3, 'running');
+                setImpProgress(20, 'File received. Importing records…');
+
+                runImportChunks(r.importId, token, r.financialYear, r.importType, r.needsOriginalBudget, r.needsBer);
             })
             .catch(function (err) {
                 if (!err) return;
-                impFail(0, err.message || 'An unexpected error occurred.');
+                impFail(1, err.message || 'An unexpected error occurred uploading the file.');
                 document.getElementById('importBtn').disabled = false;
                 document.getElementById('previewBtn').disabled = false;
             });
     }
 
+    function runImportChunks(importId, token, financialYear, importType, needsOriginalBudget, needsBer) {
+        var originalCount = 0;
+        var berCount = 0;
+
+        function processSheet(sheetKind, onSheetDone) {
+            var startRow = 2;
+
+            function nextChunk() {
+                var url = '/Import/ImportChunk?importId=' + encodeURIComponent(importId)
+                    + '&sheetKind=' + encodeURIComponent(sheetKind)
+                    + '&financialYear=' + encodeURIComponent(financialYear)
+                    + '&importType=' + encodeURIComponent(importType)
+                    + '&startRow=' + encodeURIComponent(startRow);
+
+                fetch(url, { method: 'POST', headers: { 'RequestVerificationToken': token } })
+                    .then(function (r) {
+                        if (r.status === 401 || r.redirected) { window.location.href = '/Account/Login'; return Promise.reject(null); }
+                        return r.json();
+                    })
+                    .then(function (r) {
+                        if (!r) return;
+                        if (!r.success) {
+                            impFail(3, r.message || 'Import failed.');
+                            document.getElementById('importBtn').disabled = false;
+                            document.getElementById('previewBtn').disabled = false;
+                            return;
+                        }
+
+                        if (sheetKind === 'BER') berCount += r.inserted; else originalCount += r.inserted;
+
+                        var totalSoFar = berCount + originalCount;
+                        var pct = Math.min(90, 20 + Math.round(totalSoFar / 3000));
+                        setImpProgress(pct, 'Importing records… ' + totalSoFar.toLocaleString() + ' processed so far (' + sheetKind + ')');
+
+                        if (r.done) {
+                            onSheetDone();
+                        } else {
+                            startRow = r.nextStartRow;
+                            nextChunk();
+                        }
+                    })
+                    .catch(function (err) {
+                        impFail(3, (err && err.message) || 'Network error during import. Please retry.');
+                        document.getElementById('importBtn').disabled = false;
+                        document.getElementById('previewBtn').disabled = false;
+                    });
+            }
+
+            nextChunk();
+        }
+
+        function finalize() {
+            setImpStep(2, 'done');
+            setImpStep(3, 'done');
+            setImpStep(4, 'running');
+            setImpProgress(95, 'Saving import history…');
+
+            fetch('/Import/ImportFinalize?importId=' + encodeURIComponent(importId) + '&originalCount=' + originalCount + '&berCount=' + berCount, {
+                method: 'POST',
+                headers: { 'RequestVerificationToken': token }
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (r) {
+                    setImpStep(4, 'done');
+                    setImpProgress(100, 'Import complete!');
+                    var msg = (r && r.message) || ('Import completed. BER records: ' + berCount + (originalCount > 0 ? ', Original Budget: ' + originalCount : ''));
+                    document.getElementById('importSuccessMsg').textContent = msg;
+                    document.getElementById('importSuccessAlert').classList.remove('d-none');
+                    showToast('success', msg);
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                })
+                .catch(function () {
+                    impFail(4, 'Records were imported but saving import history failed. Please refresh and check import history.');
+                    document.getElementById('importBtn').disabled = false;
+                    document.getElementById('previewBtn').disabled = false;
+                });
+        }
+
+        if (needsOriginalBudget) {
+            processSheet('OriginalBudget', function () {
+                if (needsBer) {
+                    processSheet('BER', finalize);
+                } else {
+                    finalize();
+                }
+            });
+        } else if (needsBer) {
+            processSheet('BER', finalize);
+        } else {
+            finalize();
+        }
+    }
+
     function setImpProgress(pct, msg) {
         var bar = document.getElementById('importProgressBar');
+        var display = (Math.round(pct * 10) / 10).toString();
         bar.style.width = pct + '%';
-        bar.textContent = pct + '%';
+        bar.textContent = display + '%';
         if (pct >= 100) bar.classList.remove('progress-bar-animated');
         document.getElementById('progressStatus').textContent = msg;
     }
@@ -465,12 +538,14 @@
                     runStep(4, token, function () {
                         runStep(5, token, function () {
                             runStep(6, token, function () {
-                                setUpdateOverall(100, 'All steps completed successfully!');
-                                var msg = 'Dashboard updated. ' + totalRows + ' records processed.';
-                                document.getElementById('updateSuccessMsg').textContent = msg;
-                                document.getElementById('updateSuccessResult').classList.remove('d-none');
-                                showToast('success', msg);
-                                btn.disabled = false;
+                                runStep(7, token, function () {
+                                    setUpdateOverall(100, 'All steps completed successfully!');
+                                    var msg = 'Dashboard updated. ' + totalRows + ' records processed.';
+                                    document.getElementById('updateSuccessMsg').textContent = msg;
+                                    document.getElementById('updateSuccessResult').classList.remove('d-none');
+                                    showToast('success', msg);
+                                    btn.disabled = false;
+                                }, btn);
                             }, btn);
                         }, btn);
                     }, btn);
@@ -481,7 +556,7 @@
 
     function runStep(step, token, onSuccess, btn) {
         setUpdateStep(step, 'running');
-        setUpdateOverall(Math.round((step - 1) * 100 / 6) + 2, 'Running Step ' + step + ' of 6…');
+        setUpdateOverall(Math.round((step - 1) * 100 / 7) + 2, 'Running Step ' + step + ' of 7…');
 
         fetch('/Import/UpdateBERDataStep?step=' + step, {
             method: 'POST',
@@ -497,11 +572,11 @@
             if (!r) return;
             if (r.success) {
                 setUpdateStep(step, 'done');
-                setUpdateOverall(Math.round(step * 100 / 6), 'Step ' + step + ' of 6 complete');
+                setUpdateOverall(Math.round(step * 100 / 7), 'Step ' + step + ' of 7 complete');
                 if (onSuccess) onSuccess(r);
             } else {
                 setUpdateStep(step, 'error');
-                setUpdateOverall(Math.round((step - 1) * 100 / 6), 'Failed at Step ' + step);
+                setUpdateOverall(Math.round((step - 1) * 100 / 7), 'Failed at Step ' + step);
                 document.getElementById('updateErrorMsg').textContent = r.message || 'Unknown error.';
                 document.getElementById('updateErrorResult').classList.remove('d-none');
                 showToast('error', 'Step ' + step + ' failed: ' + (r.message || ''));
@@ -526,7 +601,7 @@
 
     function setUpdateStep(stepNum, state) {
         // state: null=reset all, 'running', 'done', 'error'
-        var steps = stepNum === 0 ? [1,2,3,4,5] : [stepNum];
+        var steps = stepNum === 0 ? [1,2,3,4,5,6,7] : [stepNum];
         steps.forEach(function (n) {
             var icon = document.getElementById('step-icon-' + n);
             var badge = document.getElementById('step-badge-' + n);

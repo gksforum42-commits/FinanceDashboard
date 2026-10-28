@@ -48,14 +48,15 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Cost Center</label>
-                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:240px;">
-                    <option value="">All Cost Centers</option>
+                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:280px;" multiple>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Object Code</label>
+                <select id="filterObj" class="form-select form-select-sm select2" style="min-width:220px;" multiple>
                 </select>
             </div>
             <div class="filter-actions">
-                <button class="btn btn-primary btn-sm" onclick="loadData()">
-                    <i class="bi bi-search me-1"></i>Search
-                </button>
                 <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">
                     <i class="bi bi-x-circle me-1"></i>Clear
                 </button>
@@ -77,23 +78,28 @@
     </div>
 
     <!-- Data Table -->
-    <div class="table-container" style="overflow-x:auto; position:relative;">
+    <div class="table-container" style="position:relative; border:1px solid #dee2e6; border-radius:6px;">
         <div id="tableLoadingOverlay" style="display:none; position:absolute; inset:0; background:rgba(255,255,255,0.8); z-index:10; align-items:center; justify-content:center; border-radius:6px;">
             <div class="text-center">
                 <div class="spinner-border text-primary" role="status"></div>
                 <div class="mt-2 text-primary fw-semibold">Loading data...</div>
             </div>
         </div>
-        <table id="ccTable" class="table table-bordered table-sm table-hover print-table" style="width:100%; min-width:950px;">
+        <table id="ccTable" class="table table-bordered table-sm table-hover print-table" style="width:100%; min-width:1200px; margin-bottom:0;">
             <thead class="table-dark">
                 <tr>
                     <th style="width:30px;"></th>
-                    <th>Cost Center Description</th>
-                    <th class="text-end">Allocated Budget</th>
+                    <th style="min-width:220px;">Cost Center Description</th>
+                    <th class="text-end">Allocation</th>
                     <th class="text-end">Budget Grant</th>
                     <th class="text-end">Releases</th>
                     <th class="text-end">% Release</th>
-                    <th class="text-end">Total Expenditure</th>
+                    <th class="text-end">Supplementary</th>
+                    <th class="text-end">Reapp (+)</th>
+                    <th class="text-end">Reapp (-)</th>
+                    <th class="text-end">Surrender</th>
+                    <th class="text-end">Final Budget</th>
+                    <th class="text-end">Expenditure</th>
                     <th class="text-end">% Utilization</th>
                     <th class="text-end">Balance</th>
                     <th class="text-center no-print">Detail PDF</th>
@@ -106,6 +112,7 @@
 </div>
 
 @section Scripts {
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -114,6 +121,8 @@
         .print-only { display: block !important; }
         body, .main-content, .content-wrapper { margin: 0; padding: 0; }
         .table-container { overflow: visible !important; }
+        .dataTables_scrollBody { max-height: none !important; overflow: visible !important; }
+        .dataTables_scrollHead, .dataTables_scrollFoot { overflow: visible !important; }
         #ccTable { font-size: 9pt; width: 100% !important; }
         #ccTable thead { background: #343a40 !important; color: #fff !important; -webkit-print-color-adjust: exact; }
         #ccTable tfoot td { font-weight: bold; background: #f8f9fa; -webkit-print-color-adjust: exact; }
@@ -140,30 +149,52 @@
         });
 
         $('#filterFund').select2({ theme: 'bootstrap-5', placeholder: 'All Funds',        allowClear: true, width: '100%' });
-        $('#filterCC').select2(  { theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
+        $('#filterCC').select2(   { theme: 'bootstrap-5', placeholder: 'All Cost Centers (multi)', allowClear: true, width: '100%' });
+        $('#filterObj').select2(  { theme: 'bootstrap-5', placeholder: 'All Object Codes (multi)', allowClear: true, width: '100%' });
 
         loadFundDropdown(null);
         loadCCDropdown(null, null);
+        loadObjDropdown(null, null, null);
 
         $('#filterYear').on('change', function () {
             const yr = $(this).val() || null;
-            loadFundDropdown(yr);
-            loadCCDropdown(yr, null);
+            reloadAllDropdowns();
             loadData();
         });
 
         $('#filterFund').on('change', function () {
-            const yr = $('#filterYear').val() || null;
-            const fc = $(this).val() || null;
+            const yr   = $('#filterYear').val()   || null;
+            const fc   = $(this).val() || null;
             loadCCDropdown(yr, fc);
+            loadObjDropdown(yr, fc, null);
             loadData();
         });
+
+        $('#filterCC').on('change', function () {
+            const yr      = $('#filterYear').val()   || null;
+            const fc      = $('#filterFund').val()    || null;
+            const ccVals  = $(this).val() || [];
+            loadObjDropdown(yr, fc, ccVals.length ? ccVals : null);
+            loadData();
+        });
+
+        $('#filterObj').on('change', function () { loadData(); });
 
         loadData();
     });
 
+    function reloadAllDropdowns() {
+        const yr   = $('#filterYear').val()   || null;
+        const fc   = $('#filterFund').val()    || null;
+        const ccVals = $('#filterCC').val()    || [];
+        loadFundDropdown(yr);
+        loadCCDropdown(yr, fc);
+        loadObjDropdown(yr, fc, ccVals.length ? ccVals : null);
+    }
+
     function loadFundDropdown(year) {
-        const params = year ? { financialYear: year } : {};
+        const params = {};
+        if (year) params.financialYear = year;
         ajaxGet('/Dashboard/GetFundLookup', params, function (r) {
             if (!r.success) return;
             const sel = $('#filterFund');
@@ -172,7 +203,7 @@
             sel.empty().append('<option value="">All Funds</option>');
             r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
             sel.select2({ theme: 'bootstrap-5', placeholder: 'All Funds', allowClear: true, width: '100%' });
-            if (cur) sel.val(cur).trigger('change');
+            if (cur) sel.val(cur).trigger('change.select2');
         });
     }
 
@@ -185,28 +216,75 @@
             const sel = $('#filterCC');
             const cur = sel.val();
             if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
-            sel.empty().append('<option value="">All Cost Centers</option>');
-            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
-            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
-            if (cur) sel.val(cur).trigger('change');
+            // Build all <option> markup in one string and set it in a single DOM
+            // operation instead of appending one option at a time (which can lock
+            // up the page when the cost center list is large).
+            let optsHtml = '';
+            for (let i = 0; i < r.data.length; i++) {
+                optsHtml += '<option value="' + esc(r.data[i].value) + '">' + esc(r.data[i].text) + '</option>';
+            }
+            sel.html(optsHtml);
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Cost Centers (multi)', allowClear: true, width: '100%' });
+            // Restore previous selection if still available
+            if (cur && cur.length) {
+                const validSet = new Set(r.data.map(i => i.value));
+                const validCur = cur.filter(v => validSet.has(v));
+                if (validCur.length) sel.val(validCur).trigger('change.select2');
+            }
+        });
+    }
+
+    function loadObjDropdown(year, fundCode, ccCodes) {
+        const params = {};
+        if (year)     params.financialYear = year;
+        if (fundCode) params.fundCode      = fundCode;
+
+        let url = '/Reports/GetObjectCodeLookupByFilters?';
+        Object.keys(params).forEach(function (k) { url += k + '=' + encodeURIComponent(params[k]) + '&'; });
+        if (ccCodes && ccCodes.length) {
+            ccCodes.forEach(function (v) { url += 'costCenterCodes=' + encodeURIComponent(v) + '&'; });
+        }
+
+        ajaxGet(url, {}, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterObj');
+            const cur = sel.val() || [];
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            let optsHtml = '';
+            for (let i = 0; i < r.data.length; i++) {
+                optsHtml += '<option value="' + esc(r.data[i].value) + '">' + esc(r.data[i].text) + '</option>';
+            }
+            sel.html(optsHtml);
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes (multi)', allowClear: true, width: '100%' });
+            // Restore previous selection if still available
+            const validSet = new Set(r.data.map(i => i.value));
+            const validCur = cur.filter(v => validSet.has(v));
+            if (validCur.length) sel.val(validCur).trigger('change.select2');
         });
     }
 
     function loadData() {
-        const year = $('#filterYear').val() || null;
-        const fund = $('#filterFund').val() || null;
-        const cc   = $('#filterCC').val()   || null;
+        const year    = $('#filterYear').val()   || null;
+        const fund    = $('#filterFund').val()    || null;
+        const ccVals  = $('#filterCC').val()  || [];
+        const objVals = $('#filterObj').val() || [];
 
         $('#tableLoadingOverlay').css('display', 'flex');
 
-        ajaxGet('/Reports/GetCostCenterWiseData',
-            { financialYear: year, fundCode: fund, costCenterCode: cc },
+        // Build query string manually for array params (costCenterCodes[0]=...&costCenterCodes[1]=...)
+        let url = '/Reports/GetCostCenterWiseData?';
+        if (year)   url += 'financialYear='  + encodeURIComponent(year)   + '&';
+        if (fund)   url += 'fundCode='       + encodeURIComponent(fund)   + '&';
+        ccVals.forEach(function (v)  { url += 'costCenterCodes=' + encodeURIComponent(v) + '&'; });
+        objVals.forEach(function (v) { url += 'objectCodes='     + encodeURIComponent(v) + '&'; });
+
+        ajaxGet(url, {},
             function (r) {
                 $('#tableLoadingOverlay').hide();
                 if (r.success) {
                     renderTable(r.data);
                     updateSummary(r.data);
-                    updatePrintSubtitle(year, fund, cc);
+                    updatePrintSubtitle(year, fund, ccVals);
                 } else {
                     showToast('error', r.message || 'Failed to load data.');
                 }
@@ -226,6 +304,7 @@
         tfoot.empty();
 
         let totAllocated = 0, totGrant = 0, totReleases = 0, totExp = 0, totBalance = 0;
+        let totSupp = 0, totReappPlus = 0, totReappMinus = 0, totSurr = 0, totFinalGrant = 0;
         window._ccPdfRows = [];
 
         data.forEach(function (row) {
@@ -234,16 +313,24 @@
             const relCls  = utilClass(relPct);
             const utilCls = utilClass(utilPct);
 
-            totAllocated += row.totalAllocatedBudget;
-            totGrant     += row.totalBudgetGrant;
-            totReleases  += row.totalReleases;
-            totExp       += row.totalActualExpenditure;
-            totBalance   += row.totalBalance;
+            totAllocated  += row.totalAllocatedBudget;
+            totGrant      += row.totalBudgetGrant;
+            totReleases   += row.totalReleases;
+            totSupp       += row.totalSupplementaryGrant;
+            totReappPlus  += row.totalReappropriationPlus;
+            totReappMinus += row.totalReappropriationMinus;
+            totSurr       += row.totalSurrender;
+            totFinalGrant += row.totalFinalGrant;
+            totExp        += row.totalActualExpenditure;
+            totBalance    += row.totalBalance;
 
             window._ccPdfRows.push([
                 row.fundCenterCode + (row.costCenterDescription ? '\n' + row.costCenterDescription : ''),
                 fmtC(row.totalAllocatedBudget), fmtC(row.totalBudgetGrant),
                 fmtC(row.totalReleases),        relPct  + '%',
+                fmtC(row.totalSupplementaryGrant), fmtC(row.totalReappropriationPlus),
+                fmtC(row.totalReappropriationMinus), fmtC(row.totalSurrender),
+                fmtC(row.totalFinalGrant),
                 fmtC(row.totalActualExpenditure), utilPct + '%',
                 fmtC(row.totalBalance)
             ]);
@@ -260,6 +347,11 @@
                 '<td class="text-end">' + fmtC(row.totalBudgetGrant)        + '</td>' +
                 '<td class="text-end">' + fmtC(row.totalReleases)           + '</td>' +
                 '<td class="text-end ' + relCls  + '">' + relPct  + '%</td>' +
+                '<td class="text-end">' + fmtC(row.totalSupplementaryGrant)   + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationPlus) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationMinus)+ '</td>' +
+                '<td class="text-end">' + fmtC(row.totalSurrender)           + '</td>' +
+                '<td class="text-end fw-semibold">' + fmtC(row.totalFinalGrant) + '</td>' +
                 '<td class="text-end text-primary">' + fmtC(row.totalActualExpenditure) + '</td>' +
                 '<td class="text-end ' + utilCls + '">' + utilPct + '%</td>' +
                 '<td class="text-end">' + fmtC(row.totalBalance)            + '</td>' +
@@ -272,7 +364,8 @@
         const totalUtilPct = totGrant > 0     ? (totExp / totGrant * 100).toFixed(1)           : '0.0';
 
         window._ccPdfRows.push(['Total', fmtC(totAllocated), fmtC(totGrant), fmtC(totReleases),
-            totalRelPct + '%', fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)]);
+            totalRelPct + '%', fmtC(totSupp), fmtC(totReappPlus), fmtC(totReappMinus), fmtC(totSurr),
+            fmtC(totFinalGrant), fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)]);
 
         tfoot.append(
             '<tr class="table-secondary">' +
@@ -281,6 +374,11 @@
             '<td class="text-end"><strong>' + fmtC(totGrant)     + '</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totReleases)  + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalRelPct)  + '"><strong>' + totalRelPct  + '%</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSupp)       + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappPlus)  + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappMinus) + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSurr)       + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totFinalGrant) + '</strong></td>' +
             '<td class="text-end text-primary"><strong>' + fmtC(totExp)    + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalUtilPct) + '"><strong>' + totalUtilPct + '%</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totBalance)   + '</strong></td>' +
@@ -291,10 +389,13 @@
             pageLength: 25,
             lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
             order: [[2, 'desc']],
+            scrollX: true,
+            scrollY: '55vh',
+            scrollCollapse: true,
             dom: '<"d-flex justify-content-between align-items-center mb-2"lf>rtip',
             language: { emptyTable: 'No data found', zeroRecords: 'No matching records' },
             columnDefs: [
-                { orderable: false, targets: [0, 9] }
+                { orderable: false, targets: [0, 14] }
             ]
         });
 
@@ -332,12 +433,14 @@
         $('#summaryBar').css('display', '');
     }
 
-    function updatePrintSubtitle(year, fund, cc) {
+    function updatePrintSubtitle(year, fund, ccVals) {
         const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
-        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
+        const ccArr = Array.isArray(ccVals) ? ccVals : (ccVals ? [ccVals] : []);
+        const ccLabel = ccArr.length > 0
+            ? ccArr.map(v => $('#filterCC option[value="' + v + '"]').text() || v).join(', ')
+            : 'All Cost Centers';
         const yearLabel = year || 'All Years';
-        const parts = ['Year: ' + yearLabel, 'Grant: ' + fundLabel, 'Cost Center: ' + ccLabel];
-        $('#printSubtitle').text(parts.join(' | '));
+        $('#printSubtitle').text('Year: ' + yearLabel + ' | Grant: ' + fundLabel + ' | Cost Center: ' + ccLabel);
     }
 
     function exportPdfReport() {
@@ -349,7 +452,10 @@
 
         const year     = $('#filterYear').val() || 'All Years';
         const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
-        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
+        const ccVals   = $('#filterCC').val() || [];
+        const ccLabel  = ccVals.length > 0
+            ? ccVals.map(v => $('#filterCC option[value="' + v + '"]').text() || v).join(', ')
+            : 'All Cost Centers';
         const _d   = new Date();
         const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
@@ -381,12 +487,19 @@
                 totA += parseFloat((r[1]||'0').replace(/,/g,''))||0;
                 totG += parseFloat((r[2]||'0').replace(/,/g,''))||0;
                 totR += parseFloat((r[3]||'0').replace(/,/g,''))||0;
-                totE += parseFloat((r[5]||'0').replace(/,/g,''))||0;
-                totB += parseFloat((r[7]||'0').replace(/,/g,''))||0;
+                totE += parseFloat((r[10]||'0').replace(/,/g,''))||0;
+                totB += parseFloat((r[12]||'0').replace(/,/g,''))||0;
             }
         });
 
         // ── Table ────────────────────────────────────────────────────────────
+        // Column widths as proportions of total table width so the table always
+        // stretches to fill the full page regardless of page size/orientation.
+        const ccColWeights = [240, 75, 75, 70, 48, 70, 70, 70, 70, 75, 75, 48, 75];
+        const ccWeightSum  = ccColWeights.reduce((a, b) => a + b, 0);
+        const ccTableWidth = pageW - 16;
+        const ccColWidths  = ccColWeights.map(w => (w / ccWeightSum) * ccTableWidth);
+
         doc.autoTable({
             head: [[
                 { content: 'COST CENTER / DESCRIPTION', styles: { halign: 'left'   } },
@@ -394,6 +507,11 @@
                 { content: 'BUDGET\nGRANT',             styles: { halign: 'right'  } },
                 { content: 'RELEASES',                  styles: { halign: 'right'  } },
                 { content: '% REL',                     styles: { halign: 'center' } },
+                { content: 'SUPPLEMENTARY',             styles: { halign: 'right'  } },
+                { content: 'REAPP (+)',                 styles: { halign: 'right'  } },
+                { content: 'REAPP (-)',                 styles: { halign: 'right'  } },
+                { content: 'SURRENDER',                 styles: { halign: 'right'  } },
+                { content: 'FINAL\nBUDGET',             styles: { halign: 'right'  } },
                 { content: 'EXPENDITURE',               styles: { halign: 'right'  } },
                 { content: '% UTIL',                    styles: { halign: 'center' } },
                 { content: 'BALANCE',                   styles: { halign: 'right'  } }
@@ -401,14 +519,16 @@
             body: body,
             startY: 62,
             margin: { left: 8, right: 8, bottom: 24 },
-            tableWidth: pageW - 16,
+            tableWidth: ccTableWidth,
+            horizontalPageBreak: false,
             styles: {
                 fontSize: 8,
                 cellPadding: { top: 6, bottom: 6, left: 5, right: 5 },
                 valign: 'middle',
                 lineColor: [220, 225, 235],
                 lineWidth: 0.3,
-                textColor: [25, 25, 25]
+                textColor: [25, 25, 25],
+                overflow: 'linebreak'
             },
             headStyles: {
                 fillColor: [11, 43, 82],
@@ -424,14 +544,19 @@
             bodyStyles: { halign: 'right' },
             alternateRowStyles: { fillColor: [248, 250, 255] },
             columnStyles: {
-                0: { halign: 'left',   cellWidth: 350 },
-                1: { halign: 'right',  cellWidth: 95  },
-                2: { halign: 'right',  cellWidth: 95  },
-                3: { halign: 'right',  cellWidth: 90  },
-                4: { halign: 'center', cellWidth: 65  },
-                5: { halign: 'right',  cellWidth: 95  },
-                6: { halign: 'center', cellWidth: 65  },
-                7: { halign: 'right',  cellWidth: 95  }
+                0: { halign: 'left',   cellWidth: ccColWidths[0]  },
+                1: { halign: 'right',  cellWidth: ccColWidths[1]  },
+                2: { halign: 'right',  cellWidth: ccColWidths[2]  },
+                3: { halign: 'right',  cellWidth: ccColWidths[3]  },
+                4: { halign: 'center', cellWidth: ccColWidths[4]  },
+                5: { halign: 'right',  cellWidth: ccColWidths[5]  },
+                6: { halign: 'right',  cellWidth: ccColWidths[6]  },
+                7: { halign: 'right',  cellWidth: ccColWidths[7]  },
+                8: { halign: 'right',  cellWidth: ccColWidths[8]  },
+                9: { halign: 'right',  cellWidth: ccColWidths[9]  },
+                10: { halign: 'right',  cellWidth: ccColWidths[10] },
+                11: { halign: 'center', cellWidth: ccColWidths[11] },
+                12: { halign: 'right',  cellWidth: ccColWidths[12] }
             },
             didParseCell: function (d) {
                 if (d.section === 'head') return;
@@ -465,17 +590,31 @@
     }
 
     function loadGLDetail(ccCode, dtRow, ico) {
-        const year = $('#filterYear').val() || null;
-        const fund = $('#filterFund').val() || null;
+        const year    = $('#filterYear').val() || null;
+        const fund    = $('#filterFund').val() || null;
+        const objVals = $('#filterObj').val()  || [];
+
         ico.removeClass('bi-plus-circle text-primary').addClass('bi-arrow-repeat text-secondary');
-        ajaxGet('/Reports/GetCostCenterGLDetail',
-            { costCenterCode: ccCode, financialYear: year, fundCode: fund },
+
+        // Build URL with repeated objectCodes= params
+        let url = '/Reports/GetCostCenterGLDetail?costCenterCode=' + encodeURIComponent(ccCode);
+        if (year) url += '&financialYear=' + encodeURIComponent(year);
+        if (fund) url += '&fundCode='      + encodeURIComponent(fund);
+        objVals.forEach(function (v) { url += '&objectCodes=' + encodeURIComponent(v); });
+
+        ajaxGet(url, {},
             function (r) {
                 if (!r.success) { showToast('error', r.message || 'Failed to load GL detail.'); return; }
                 const rows = r.data;
+
+                // Object filter label for the GL panel header
+                const objLabel = objVals.length > 0
+                    ? ' &nbsp;<span class="badge bg-info text-dark">Filtered: ' + objVals.map(v => esc($('#filterObj option[value="' + v + '"]').text() || v)).join(', ') + '</span>'
+                    : '';
+
                 let html = '<div class="p-2" style="background:#f0f4ff;">';
                 html += '<div class="d-flex justify-content-between align-items-center mb-2">';
-                html += '<strong class="text-primary"><i class="bi bi-list-ul me-1"></i>GL Detail — ' + esc(ccCode) + '</strong>';
+                html += '<strong class="text-primary"><i class="bi bi-list-ul me-1"></i>GL Detail — ' + esc(ccCode) + objLabel + '</strong>';
                 html += '<button class="btn btn-danger btn-xs py-0 px-2" style="font-size:11px;" onclick="exportGLPdf(\'' + ccCode + '\', \''+ ccCode +'\')">';
                 html += '<i class="bi bi-file-earmark-pdf"></i> Download PDF</button></div>';
                 html += '<div style="overflow-x:auto;"><table class="table table-bordered table-sm table-hover mb-0" style="font-size:12px;width:100%;">';
@@ -483,15 +622,21 @@
                 html += '<th>GL Code</th><th>GL Description</th>';
                 html += '<th class="text-end">Alloc Budget</th><th class="text-end">Budget Grant</th>';
                 html += '<th class="text-end">Releases</th><th class="text-end">% Release</th>';
+                html += '<th class="text-end">Supplementary</th><th class="text-end">Reapp (+)</th>';
+                html += '<th class="text-end">Reapp (-)</th><th class="text-end">Surrender</th>';
+                html += '<th class="text-end">Final Budget</th>';
                 html += '<th class="text-end">Expenditure</th><th class="text-end">% Util</th>';
                 html += '<th class="text-end">Balance</th>';
                 html += '</tr></thead><tbody>';
                 let tAl = 0, tBg = 0, tRl = 0, tEx = 0, tBl = 0;
+                let tSupp = 0, tReappPlus = 0, tReappMinus = 0, tSurr = 0, tFinalGrant = 0;
                 rows.forEach(function (g) {
                     const rPct = parseFloat(g.releasePercentage).toFixed(1);
                     const uPct = parseFloat(g.utilizationPercentage).toFixed(1);
                     tAl += g.totalAllocatedBudget; tBg += g.totalBudgetGrant;
                     tRl += g.totalReleases;         tEx += g.totalActualExpenditure; tBl += g.totalBalance;
+                    tSupp += g.totalSupplementaryGrant; tReappPlus += g.totalReappropriationPlus;
+                    tReappMinus += g.totalReappropriationMinus; tSurr += g.totalSurrender; tFinalGrant += g.totalFinalGrant;
                     html += '<tr>';
                     html += '<td><code>' + esc(g.glCode) + '</code></td>';
                     html += '<td>' + esc(g.glDescription || '—') + '</td>';
@@ -499,6 +644,11 @@
                     html += '<td class="text-end">' + fmtC(g.totalBudgetGrant)      + '</td>';
                     html += '<td class="text-end">' + fmtC(g.totalReleases)         + '</td>';
                     html += '<td class="text-end ' + utilClass(rPct) + '">' + rPct + '%</td>';
+                    html += '<td class="text-end">' + fmtC(g.totalSupplementaryGrant)   + '</td>';
+                    html += '<td class="text-end">' + fmtC(g.totalReappropriationPlus)  + '</td>';
+                    html += '<td class="text-end">' + fmtC(g.totalReappropriationMinus) + '</td>';
+                    html += '<td class="text-end">' + fmtC(g.totalSurrender)            + '</td>';
+                    html += '<td class="text-end fw-semibold">' + fmtC(g.totalFinalGrant) + '</td>';
                     html += '<td class="text-end text-primary">' + fmtC(g.totalActualExpenditure) + '</td>';
                     html += '<td class="text-end ' + utilClass(uPct) + '">' + uPct + '%</td>';
                     html += '<td class="text-end">' + fmtC(g.totalBalance) + '</td>';
@@ -510,11 +660,13 @@
                 html += '<td colspan="2">Total</td>';
                 html += '<td class="text-end">' + fmtC(tAl) + '</td><td class="text-end">' + fmtC(tBg) + '</td>';
                 html += '<td class="text-end">' + fmtC(tRl) + '</td><td class="text-end">' + totRPct + '%</td>';
+                html += '<td class="text-end">' + fmtC(tSupp) + '</td><td class="text-end">' + fmtC(tReappPlus) + '</td>';
+                html += '<td class="text-end">' + fmtC(tReappMinus) + '</td><td class="text-end">' + fmtC(tSurr) + '</td>';
+                html += '<td class="text-end">' + fmtC(tFinalGrant) + '</td>';
                 html += '<td class="text-end">' + fmtC(tEx) + '</td><td class="text-end">' + totUPct + '%</td>';
                 html += '<td class="text-end">' + fmtC(tBl) + '</td></tr>';
                 html += '</tbody></table></div></div>';
 
-                // store GL rows on DT row for PDF use
                 dtRow.data() && (dtRow.node()._glData = { rows: rows, ccCode: ccCode });
                 dtRow.child(html).show();
                 ico.removeClass('bi-arrow-repeat text-secondary').addClass('bi-dash-circle text-danger');
@@ -524,14 +676,23 @@
     function exportGLPdf(ccCode, ccDesc) {
         const year      = $('#filterYear').val() || 'All Years';
         const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
+        const objVals   = $('#filterObj').val() || [];
+        const objLabel  = objVals.length > 0
+            ? objVals.map(v => $('#filterObj option[value="' + v + '"]').text() || v).join(', ')
+            : 'All Objects';
         const _d   = new Date();
         const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
 
-        ajaxGet('/Reports/GetCostCenterGLDetail',
-            { costCenterCode: ccCode,
-              financialYear: $('#filterYear').val() || null,
-              fundCode: $('#filterFund').val() || null },
+        // Build URL with object filter
+        let url = '/Reports/GetCostCenterGLDetail?costCenterCode=' + encodeURIComponent(ccCode);
+        const yr = $('#filterYear').val() || null;
+        const fn = $('#filterFund').val() || null;
+        if (yr) url += '&financialYear=' + encodeURIComponent(yr);
+        if (fn) url += '&fundCode='      + encodeURIComponent(fn);
+        objVals.forEach(function (v) { url += '&objectCodes=' + encodeURIComponent(v); });
+
+        ajaxGet(url, {},
             function (r) {
                 if (!r.success) { showToast('error', 'Failed to load GL data for PDF.'); return; }
 
@@ -542,8 +703,10 @@
                 const cx    = pageW / 2;
 
                 // ── Header band ─────────────────────────────────────────────────────
+                // Taller header when object filter is shown
+                const hdrH = objVals.length > 0 ? 80 : 68;
                 doc.setFillColor(11, 43, 82);
-                doc.rect(0, 0, pageW, 68, 'F');
+                doc.rect(0, 0, pageW, hdrH, 'F');
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(18);
                 doc.setTextColor(255, 255, 255);
@@ -555,6 +718,9 @@
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(210, 220, 245);
                 doc.text('Year: ' + year + '   |   Grant: ' + fundLabel + '   |   Generated: ' + today, cx, 50, { align: 'center' });
+                if (objVals.length > 0) {
+                    doc.text('Object Filter: ' + objLabel, cx, 64, { align: 'center' });
+                }
 
                 // ── Build body + styles ───────────────────────────────────────────────
                 const salary    = r.data.filter(g => g.glCode && g.glCode.startsWith('A01'));
@@ -564,6 +730,7 @@
                 const styles = {};
                 let idx = 0;
                 let tAl=0, tBg=0, tRl=0, tEx=0, tBl=0;
+                let tSupp=0, tReappPlus=0, tReappMinus=0, tSurr=0, tFinalGrant=0;
 
                 function addGroup(label, items) {
                     if (!items.length) return;
@@ -571,22 +738,30 @@
                         a:  acc.a  + g.totalAllocatedBudget,
                         bg: acc.bg + g.totalBudgetGrant,
                         rl: acc.rl + g.totalReleases,
+                        supp: acc.supp + g.totalSupplementaryGrant,
+                        rp:  acc.rp  + g.totalReappropriationPlus,
+                        rm:  acc.rm  + g.totalReappropriationMinus,
+                        sur: acc.sur + g.totalSurrender,
+                        fg:  acc.fg  + g.totalFinalGrant,
                         ex: acc.ex + g.totalActualExpenditure,
                         bl: acc.bl + g.totalBalance
-                    }), { a:0, bg:0, rl:0, ex:0, bl:0 });
-                    const rp = s.a  > 0 ? (s.rl / s.a  * 100).toFixed(1) + '%' : '0.0%';
-                    const up = s.bg > 0 ? (s.ex / s.bg * 100).toFixed(1) + '%' : '0.0%';
-                    body.push([label, '', fmtC(s.a), fmtC(s.bg), fmtC(s.rl), rp, fmtC(s.ex), up, fmtC(s.bl)]);
+                    }), { a:0, bg:0, rl:0, supp:0, rp:0, rm:0, sur:0, fg:0, ex:0, bl:0 });
+                    const rpPct = s.a  > 0 ? (s.rl / s.a  * 100).toFixed(1) + '%' : '0.0%';
+                    const upPct = s.bg > 0 ? (s.ex / s.bg * 100).toFixed(1) + '%' : '0.0%';
+                    body.push([label, '', fmtC(s.a), fmtC(s.bg), fmtC(s.rl), rpPct, fmtC(s.supp), fmtC(s.rp), fmtC(s.rm), fmtC(s.sur), fmtC(s.fg), fmtC(s.ex), upPct, fmtC(s.bl)]);
                     styles[idx++] = { fontStyle:'bold', fillColor:[224,245,224], textColor:[20,70,20] };
 
                     items.forEach(function (g) {
                         const grp = g.totalAllocatedBudget, gbg = g.totalBudgetGrant;
                         const grl = g.totalReleases, gex = g.totalActualExpenditure, gbl = g.totalBalance;
+                        const gsupp = g.totalSupplementaryGrant, grAdd = g.totalReappropriationPlus;
+                        const grSub = g.totalReappropriationMinus, gsur = g.totalSurrender, gfg = g.totalFinalGrant;
                         const grp_r = grp > 0 ? (grl / grp * 100).toFixed(1) + '%' : '0.0%';
                         const gup   = gbg > 0 ? (gex / gbg * 100).toFixed(1) + '%' : '0.0%';
-                        body.push([g.glCode || '', g.glDescription || '', fmtC(grp), fmtC(gbg), fmtC(grl), grp_r, fmtC(gex), gup, fmtC(gbl)]);
+                        body.push([g.glCode || '', g.glDescription || '', fmtC(grp), fmtC(gbg), fmtC(grl), grp_r, fmtC(gsupp), fmtC(grAdd), fmtC(grSub), fmtC(gsur), fmtC(gfg), fmtC(gex), gup, fmtC(gbl)]);
                         styles[idx++] = { fillColor:[255,255,255], textColor:[60,60,60], fontSize:7 };
                         tAl+=grp; tBg+=gbg; tRl+=grl; tEx+=gex; tBl+=gbl;
+                        tSupp+=gsupp; tReappPlus+=grAdd; tReappMinus+=grSub; tSurr+=gsur; tFinalGrant+=gfg;
                     });
                 }
 
@@ -595,10 +770,15 @@
 
                 const totRp = tAl > 0 ? (tRl/tAl*100).toFixed(1)+'%' : '0.0%';
                 const totUp = tBg > 0 ? (tEx/tBg*100).toFixed(1)+'%' : '0.0%';
-                body.push(['GRAND TOTAL', '', fmtC(tAl), fmtC(tBg), fmtC(tRl), totRp, fmtC(tEx), totUp, fmtC(tBl)]);
+                body.push(['GRAND TOTAL', '', fmtC(tAl), fmtC(tBg), fmtC(tRl), totRp, fmtC(tSupp), fmtC(tReappPlus), fmtC(tReappMinus), fmtC(tSurr), fmtC(tFinalGrant), fmtC(tEx), totUp, fmtC(tBl)]);
                 styles[idx] = { fontStyle:'bold', fillColor:[11,43,82], textColor:[255,255,255] };
 
                 // ── Table ──────────────────────────────────────────────────────
+                const glColWeights = [65, 170, 80, 80, 75, 45, 75, 75, 75, 75, 80, 80, 45, 80];
+                const glWeightSum  = glColWeights.reduce((a, b) => a + b, 0);
+                const glTableWidth = pageW - 16;
+                const glColWidths  = glColWeights.map(w => (w / glWeightSum) * glTableWidth);
+
                 doc.autoTable({
                     head: [[
                         { content: 'GL CODE',      styles: { halign: 'left'   } },
@@ -607,21 +787,28 @@
                         { content: 'BUDGET\nGRANT', styles: { halign: 'right'  } },
                         { content: 'RELEASES',      styles: { halign: 'right'  } },
                         { content: '% REL',         styles: { halign: 'center' } },
+                        { content: 'SUPPLEMENTARY', styles: { halign: 'right'  } },
+                        { content: 'REAPP (+)',     styles: { halign: 'right'  } },
+                        { content: 'REAPP (-)',     styles: { halign: 'right'  } },
+                        { content: 'SURRENDER',     styles: { halign: 'right'  } },
+                        { content: 'FINAL\nBUDGET', styles: { halign: 'right'  } },
                         { content: 'EXPENDITURE',   styles: { halign: 'right'  } },
                         { content: '% UTIL',        styles: { halign: 'center' } },
                         { content: 'BALANCE',       styles: { halign: 'right'  } }
                     ]],
                     body: body,
-                    startY: 74,
+                    startY: hdrH + 6,
                     margin: { left: 8, right: 8, bottom: 24 },
-                    tableWidth: pageW - 16,
+                    tableWidth: glTableWidth,
+                    horizontalPageBreak: false,
                     styles: {
                         fontSize: 8,
                         cellPadding: { top: 6, bottom: 6, left: 5, right: 5 },
                         valign: 'middle',
                         lineColor: [220, 225, 235],
                         lineWidth: 0.3,
-                        textColor: [25, 25, 25]
+                        textColor: [25, 25, 25],
+                        overflow: 'linebreak'
                     },
                     headStyles: {
                         fillColor: [11, 43, 82],
@@ -637,15 +824,20 @@
                     bodyStyles: { halign: 'right' },
                     alternateRowStyles: { fillColor: [248, 250, 255] },
                     columnStyles: {
-                        0: { halign: 'left',   cellWidth: 70  },
-                        1: { halign: 'left',   cellWidth: 220 },
-                        2: { halign: 'right',  cellWidth: 90  },
-                        3: { halign: 'right',  cellWidth: 90  },
-                        4: { halign: 'right',  cellWidth: 85  },
-                        5: { halign: 'center', cellWidth: 60  },
-                        6: { halign: 'right',  cellWidth: 90  },
-                        7: { halign: 'center', cellWidth: 60  },
-                        8: { halign: 'right',  cellWidth: 90  }
+                        0: { halign: 'left',   cellWidth: glColWidths[0]  },
+                        1: { halign: 'left',   cellWidth: glColWidths[1]  },
+                        2: { halign: 'right',  cellWidth: glColWidths[2]  },
+                        3: { halign: 'right',  cellWidth: glColWidths[3]  },
+                        4: { halign: 'right',  cellWidth: glColWidths[4]  },
+                        5: { halign: 'center', cellWidth: glColWidths[5]  },
+                        6: { halign: 'right',  cellWidth: glColWidths[6]  },
+                        7: { halign: 'right',  cellWidth: glColWidths[7]  },
+                        8: { halign: 'right',  cellWidth: glColWidths[8]  },
+                        9: { halign: 'right',  cellWidth: glColWidths[9]  },
+                        10: { halign: 'right',  cellWidth: glColWidths[10] },
+                        11: { halign: 'right',  cellWidth: glColWidths[11] },
+                        12: { halign: 'center', cellWidth: glColWidths[12] },
+                        13: { halign: 'right',  cellWidth: glColWidths[13] }
                     },
                     didParseCell: function (d) {
                         if (d.section === 'head') return;
@@ -682,26 +874,36 @@
 
     function clearFilters() {
         $('#filterYear').val('');
-        $('#filterFund').val('').trigger('change');
-        $('#filterCC').val('').trigger('change');
+        if ($('#filterFund').hasClass('select2-hidden-accessible'))   $('#filterFund').val(null).trigger('change.select2');
+        if ($('#filterCC').hasClass('select2-hidden-accessible'))     $('#filterCC').val(null).trigger('change.select2');
+        if ($('#filterObj').hasClass('select2-hidden-accessible'))    $('#filterObj').val(null).trigger('change.select2');
         loadFundDropdown(null);
         loadCCDropdown(null, null);
+        loadObjDropdown(null, null, null);
         loadData();
     }
 
     function printFiltered() {
         const year      = $('#filterYear').val() || 'All Years';
         const fundLabel = $('#filterFund').find('option:selected').text() || 'All Funds';
-        const ccLabel   = $('#filterCC').find('option:selected').text()   || 'All Cost Centers';
+        const ccVals    = $('#filterCC').val() || [];
+        const ccLabel   = ccVals.length > 0
+            ? ccVals.map(v => $('#filterCC option[value="' + v + '"]').text() || v).join(', ')
+            : 'All Cost Centers';
 
         // Gather visible (filtered) rows from DataTable
-        let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:10pt;">';
+        let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:9pt;">';
         tableHtml += '<thead><tr style="background:#1e3250;color:#fff;">';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;">Cost Center</th>';
-        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Allocated Budget</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Allocation</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Budget Grant</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Releases</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">% Release</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Supplementary</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Reapp (+)</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Reapp (-)</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Surrender</th>';
+        tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Final Budget</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Expenditure</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">% Util</th>';
         tableHtml += '<th style="padding:5px;border:1px solid #ccc;text-align:right;">Balance</th>';
@@ -710,18 +912,23 @@
         ccDT.rows({ search: 'applied' }).every(function () {
             const $tr = $(this.node());
             const cells = $tr.find('td');
-            if (cells.length < 9) return;
+            if (cells.length < 14) return;
             const even = this.index() % 2 === 0;
             const bg   = even ? '#fff' : '#f5f7fb';
             tableHtml += '<tr style="background:' + bg + ';">';
             tableHtml += '<td style="padding:4px;border:1px solid #ccc;">' + cells.eq(1).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(2).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(3).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(4).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(5).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(6).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(7).text() + '</td>';
-            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(8).text() + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(2).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(3).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(4).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(5).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(6).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(7).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(8).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(9).text()  + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(10).text() + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(11).text() + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(12).text() + '</td>';
+            tableHtml += '<td style="padding:4px;border:1px solid #ccc;text-align:right;">' + cells.eq(13).text() + '</td>';
             tableHtml += '</tr>';
         });
 
@@ -742,13 +949,17 @@
     }
 
     function exportExcel() {
-        const year = $('#filterYear').val() || '';
-        const fund = $('#filterFund').val() || '';
-        const cc   = $('#filterCC').val()   || '';
-        window.location.href = '/Reports/ExportExcel?reportType=costcenter'
-            + (year ? '&financialYear=' + year : '')
-            + (fund ? '&fundCode='      + fund : '')
-            + (cc   ? '&costCenterCode=' + cc   : '');
+        const year    = $('#filterYear').val() || '';
+        const fund    = $('#filterFund').val() || '';
+        const ccVals  = $('#filterCC').val()  || [];
+        const objVals = $('#filterObj').val() || [];
+        const qs = new URLSearchParams();
+        qs.set('reportType', 'costcenter');
+        if (year) qs.set('financialYear', year);
+        if (fund) qs.set('fundCode', fund);
+        ccVals.forEach(v  => qs.append('costCenterCodes', v));
+        objVals.forEach(v => qs.append('objectCodes', v));
+        window.location.href = '/Reports/ExportExcel?' + qs.toString();
     }
 
     function fmtC(v) { return Math.round(parseFloat(v) || 0).toLocaleString('en-PK'); }

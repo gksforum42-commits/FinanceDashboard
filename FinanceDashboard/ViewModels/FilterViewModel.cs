@@ -17,6 +17,16 @@ namespace FinanceDashboard.ViewModels
         public string? Keyword { get; set; }
         public string? Sector { get; set; }
 
+        // Multi-value filters for Cost Center Wise export
+        public List<string> CostCenterCodes { get; set; } = new();
+        public List<string> ObjectCodes     { get; set; } = new();
+
+        // Grouping level flags for Object Wise export
+        public bool ShowSector { get; set; } = true;
+        public bool ShowDept   { get; set; } = true;
+        public bool ShowFund   { get; set; } = true;
+        public bool ShowCC     { get; set; } = true;
+
         // Lookup lists for dropdowns
         public List<SelectListItem> FinancialYears { get; set; } = new();
         public List<SelectListItem> Funds { get; set; } = new();

@@ -1,4 +1,5 @@
 using FinanceDashboard.Interfaces;
+using FinanceDashboard.Services;
 using FinanceDashboard.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +7,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace FinanceDashboard.Controllers
 {
-    [Authorize]
+    [Authorize(Policy = "NotSneDepartmentUser")]
     public class DashboardController : Controller
     {
         private readonly IBudgetRepository _budgetRepository;
@@ -28,7 +29,8 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
-                var summary = await _budgetRepository.GetDashboardSummaryAsync(financialYear);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                var summary = await _budgetRepository.GetDashboardSummaryAsync(financialYear, restrictedDepartments);
                 return Json(new { success = true, data = summary });
             }
             catch (Exception ex)
@@ -43,7 +45,8 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
-                var chartData = await _budgetRepository.GetBudgetChartDataAsync(financialYear);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                var chartData = await _budgetRepository.GetBudgetChartDataAsync(financialYear, restrictedDepartments);
                 return Json(new { success = true, data = chartData });
             }
             catch (Exception ex)
@@ -58,7 +61,8 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
-                var data = await _budgetRepository.GetMonthlyExpenditureAsync(financialYear, fundCode);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                var data = await _budgetRepository.GetMonthlyExpenditureAsync(financialYear, fundCode, restrictedDepartments);
                 return Json(new { success = true, data });
             }
             catch (Exception ex)
@@ -105,7 +109,9 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
-                var items = await _budgetRepository.GetFundLookupAsync(financialYear, departmentCode, sector);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
+                var items = await _budgetRepository.GetFundLookupAsync(financialYear, departmentCode, sector, restrictedDepartments);
                 return Json(new { success = true, data = items });
             }
             catch (Exception ex)
@@ -116,11 +122,13 @@ namespace FinanceDashboard.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetCostCenterLookup(int? financialYear, string? fundCode)
+        public async Task<IActionResult> GetCostCenterLookup(int? financialYear, string? fundCode, string? sector, string? departmentCode)
         {
             try
             {
-                var items = await _budgetRepository.GetCostCenterLookupAsync(financialYear, fundCode);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
+                var items = await _budgetRepository.GetCostCenterLookupAsync(financialYear, fundCode, sector, departmentCode, restrictedDepartments);
                 return Json(new { success = true, data = items });
             }
             catch (Exception ex)
@@ -136,6 +144,11 @@ namespace FinanceDashboard.Controllers
             try
             {
                 var items = await _budgetRepository.GetDepartmentLookupAsync(financialYear, sector);
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                {
+                    items = items.Where(i => restrictedDepartments.Contains(i.Value)).ToList();
+                }
                 return Json(new { success = true, data = items });
             }
             catch (Exception ex)
@@ -171,10 +184,11 @@ namespace FinanceDashboard.Controllers
             try
             {
                 int year = financialYear ?? DateTime.Now.Year;
+                var restrictedDepartments = User.GetRestrictedDepartments();
 
-                var summary = await _budgetRepository.GetDashboardSummaryAsync(financialYear);
-                var charts  = await _budgetRepository.GetBudgetChartDataAsync(financialYear);
-                var monthly = await _budgetRepository.GetMonthlyExpenditureAsync(year);
+                var summary = await _budgetRepository.GetDashboardSummaryAsync(financialYear, restrictedDepartments);
+                var charts  = await _budgetRepository.GetBudgetChartDataAsync(financialYear, restrictedDepartments);
+                var monthly = await _budgetRepository.GetMonthlyExpenditureAsync(year, null, restrictedDepartments);
 
                 return Json(new
                 {

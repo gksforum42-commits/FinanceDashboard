@@ -1,0 +1,455 @@
+@{
+    ViewData["Title"] = "Department Wise Report";
+}
+
+<div class="fade-in">
+    <!-- Page Header -->
+    <div class="page-header no-print">
+        <div class="w-100 text-center">
+            <h2 class="page-title"><i class="bi bi-diagram-3 me-2"></i>Department Wise Report</h2>
+            <p class="text-muted mb-0">Provincial Budget &amp; Expenditure Report</p>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-outline-danger btn-sm" onclick="downloadPdf()">
+                <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
+            </button>
+            <button class="btn btn-outline-success btn-sm" onclick="downloadExcel()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+                <i class="bi bi-printer me-1"></i>Print
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar no-print">
+        <div class="filter-form">
+            <div class="form-group">
+                <label class="form-label">Financial Year</label>
+                <select id="filterYear" class="form-select form-select-sm" style="width:150px;">
+                    <option value="">All Years</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Sector</label>
+                <select id="filterSector" class="form-select form-select-sm select2" multiple="multiple" style="width:220px;">
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Department</label>
+                <select id="filterDepartment" class="form-select form-select-sm select2" multiple="multiple" style="width:280px;">
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary btn-sm" onclick="loadReport()">
+                    <i class="bi bi-search me-1"></i>Generate
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingOverlay" style="display:none; text-align:center; padding:60px 0;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-muted fw-semibold">Generating report...</div>
+    </div>
+
+    <!-- PDF Preview (injected dynamically as <object> tag) -->
+    <div id="pdfPreviewWrapper" style="display:none;"></div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script>
+    let _reportData = [];
+
+    $(document).ready(function () {
+        $('#filterSector').select2({ theme: 'bootstrap-5', width: '100%', placeholder: 'All Sectors', allowClear: true });
+        $('#filterDepartment').select2({ theme: 'bootstrap-5', width: '100%', placeholder: 'All Departments', allowClear: true });
+
+        ajaxGet('/Dashboard/GetFinancialYears', {}, function (r) {
+            if (!r.success) {
+                showToast('error', 'Failed to load financial years.');
+                return;
+            }
+            r.data.forEach(i => $('#filterYear').append('<option value="' + i.value + '">' + i.text + '</option>'));
+            if (r.data.length > 0) {
+                $('#filterYear').val(r.data[0].value);
+            }
+            loadSectors();
+        }, function () {
+            showToast('error', 'Could not connect to server to load financial years.');
+        });
+
+        $('#filterYear').on('change', function () {
+            loadSectors(true);
+        });
+        $('#filterSector').on('change', function () {
+            loadDepartments(true);
+        });
+    });
+
+    function getSelectedSectors() {
+        return $('#filterSector').val() || [];
+    }
+
+    function getSelectedDepartments() {
+        return $('#filterDepartment').val() || [];
+    }
+
+    function loadSectors(keepSelection) {
+        const year = $('#filterYear').val() || null;
+        const prevSectors = keepSelection ? getSelectedSectors() : [];
+
+        ajaxGet('/SummaryReports/GetSectorLookup', year ? { financialYear: year } : {}, function (r) {
+            if (!r.success) { showToast('error', 'Failed to load sectors.'); return; }
+            $('#filterSector').empty();
+            r.data.forEach(i => $('#filterSector').append('<option value="' + i.value + '">' + i.text + '</option>'));
+            if (prevSectors.length) $('#filterSector').val(prevSectors);
+            $('#filterSector').trigger('change.select2');
+            loadDepartments();
+        }, function () {
+            showToast('error', 'Could not connect to server to load sectors.');
+        });
+    }
+
+    function loadDepartments(keepSelection) {
+        const year    = $('#filterYear').val() || null;
+        const sectors = getSelectedSectors();
+        const prevDepts = keepSelection ? getSelectedDepartments() : [];
+
+        const params = {};
+        if (year) params.financialYear = year;
+        if (sectors.length) params.sectors = sectors;
+
+        ajaxGet('/SummaryReports/GetDepartmentLookup', params, function (r) {
+            if (!r.success) { showToast('error', 'Failed to load departments.'); return; }
+            $('#filterDepartment').empty();
+            r.data.forEach(i => $('#filterDepartment').append('<option value="' + i.value + '">' + i.text + '</option>'));
+            if (prevDepts.length) $('#filterDepartment').val(prevDepts);
+            $('#filterDepartment').trigger('change.select2');
+        }, function () {
+            showToast('error', 'Could not connect to server to load departments.');
+        });
+    }
+
+    function loadReport() {
+        const year        = $('#filterYear').val() || null;
+        const sectors      = getSelectedSectors();
+        const departments  = getSelectedDepartments();
+
+        $('#pdfPreviewWrapper').hide();
+        $('#loadingOverlay').show();
+
+        $.ajax({
+            url: '/SummaryReports/GetDeptWiseData',
+            type: 'GET',
+            data: { financialYear: year, sectors: sectors, departmentCodes: departments },
+            traditional: true,
+            dataType: 'json'
+        })
+            .done(function (r) {
+                $('#loadingOverlay').hide();
+                if (!r.success) { showToast('error', r.message || 'Failed to load report.'); return; }
+                _reportData = r.data;
+                renderPdfPreview(_reportData);
+            })
+            .fail(function () {
+                $('#loadingOverlay').hide();
+                showToast('error', 'Failed to load report.');
+            });
+    }
+
+    function buildPdfDoc(data) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
+
+        const year   = $('#filterYear').val() || 'All Years';
+        const _d     = new Date();
+        const _months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const today  = String(_d.getDate()).padStart(2, '0') + ' ' + _months[_d.getMonth()] + ' ' + _d.getFullYear();
+        const pageW  = doc.internal.pageSize.getWidth();
+        const pageH  = doc.internal.pageSize.getHeight();
+        const centerX = pageW / 2;
+
+        doc.setTextColor(0, 0, 0);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.text('Provincial Budget & Expenditure Report', centerX, 32, { align: 'center' });
+
+        doc.setDrawColor(13, 71, 161);
+        doc.setLineWidth(1.2);
+        doc.line(20, 38, pageW - 20, 38);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('Department Wise Report Up to ' + today + '   |   Financial Year: ' + year, centerX, 52, { align: 'center' });
+
+        const headers = [[
+            'Description',
+            'Allocated\nBudget',
+            'Original Budget\nReleased',
+            '% BE\nReleased',
+            'Supplementary\nBudget',
+            'Transfer In',
+            'Transfer Out',
+            'Budget\nSurrender',
+            'Final Budget',
+            'Total Actual\nExpenditure'
+        ]];
+
+        const body = data.map(function (row) {
+            const obr   = row.originalBudgetReleased;
+            const alloc = row.allocatedBudget;
+            const pct   = alloc > 0 ? Math.round(obr / alloc * 100) + '%' : '0%';
+
+            return [
+                row.description,
+                fmtN(row.allocatedBudget),
+                fmtN(row.originalBudgetReleased),
+                pct,
+                fmtN(row.supplementaryBudget),
+                fmtN(row.reAppPlus),
+                fmtN(row.reAppMinus),
+                fmtN(row.budgetSurrender),
+                fmtN(row.finalBudget),
+                fmtN(row.totalActualExpenditure)
+            ];
+        });
+
+        const rowStyles = {};
+        data.forEach(function (row, idx) {
+            switch (row.rowType) {
+                case 'dept':
+                    rowStyles[idx] = { fontStyle: 'bold', fillColor: [13, 71, 161], textColor: [255, 255, 255] };
+                    break;
+                case 'sector':
+                    rowStyles[idx] = { fillColor: [237, 245, 255], textColor: [0, 0, 0], fontStyle: 'normal' };
+                    break;
+                case 'grand_total':
+                    rowStyles[idx] = { fontStyle: 'bold', fillColor: [13, 71, 161], textColor: [255, 255, 255] };
+                    break;
+                default:
+                    rowStyles[idx] = { textColor: [0, 0, 0] };
+            }
+        });
+
+        doc.autoTable({
+            head: headers,
+            body: body,
+            startY: 64,
+            tableWidth: 'auto',
+            margin: { top: 64, left: 20, right: 20, bottom: 28 },
+            styles: {
+                fontSize: 9,
+                cellPadding: 5,
+                valign: 'middle',
+                halign: 'center',
+                lineColor: [180, 180, 180],
+                lineWidth: 0.35,
+                overflow: 'linebreak'
+            },
+            headStyles: {
+                fillColor: [13, 71, 161],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 9,
+                halign: 'center',
+                valign: 'middle',
+                cellPadding: 6
+            },
+            bodyStyles: { halign: 'center' },
+            columnStyles: {
+                0: { halign: 'left',   cellWidth: 200 },
+                1: { cellWidth: 'auto' },
+                2: { cellWidth: 'auto' },
+                3: { cellWidth: 50,    halign: 'center' },
+                4: { cellWidth: 'auto' },
+                5: { cellWidth: 'auto' },
+                6: { cellWidth: 'auto' },
+                7: { cellWidth: 'auto' },
+                8: { cellWidth: 'auto' },
+                9: { cellWidth: 'auto' }
+            },
+            didParseCell: function (d) {
+                if (d.section === 'body') {
+                    const s = rowStyles[d.row.index];
+                    if (s) {
+                        if (s.fillColor)  d.cell.styles.fillColor  = s.fillColor;
+                        if (s.textColor)  d.cell.styles.textColor  = s.textColor;
+                        if (s.fontStyle)  d.cell.styles.fontStyle  = s.fontStyle;
+                    }
+                    // Indent sector rows (second level) under department in description column
+                    if (d.column.index === 0 && data[d.row.index]) {
+                        const rt = data[d.row.index].rowType;
+                        if (rt === 'sector') {
+                            d.cell.styles.cellPadding = { left: 24, top: 4, bottom: 4, right: 4 };
+                        }
+                    }
+                }
+            },
+            didDrawPage: function (hookData) {
+                if (hookData.pageNumber > 1) {
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(0, 0, 0);
+                    doc.text('Provincial Budget & Expenditure Report', centerX, 22, { align: 'center' });
+                    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+                    doc.text('Department Wise Report Up to ' + today + '   |   Financial Year: ' + year, centerX, 36, { align: 'center' });
+                    doc.setDrawColor(13, 71, 161); doc.setLineWidth(0.8);
+                    doc.line(20, 41, pageW - 20, 41);
+                }
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(30, 30, 30);
+                const pc  = doc.internal.getNumberOfPages();
+                const cur = doc.internal.getCurrentPageInfo().pageNumber;
+                doc.text(
+                    'Department Wise Report   |   Page ' + cur + ' of ' + pc,
+                    centerX, pageH - 12, { align: 'center' }
+                );
+                doc.setDrawColor(13, 71, 161); doc.setLineWidth(0.6);
+                doc.line(20, pageH - 20, pageW - 20, pageH - 20);
+            }
+        });
+
+        return doc;
+    }
+
+    function renderPdfPreview(data) {
+        const doc    = buildPdfDoc(data);
+        const uri    = doc.output('datauristring');
+        const wrapper = document.getElementById('pdfPreviewWrapper');
+        wrapper.innerHTML = '<object data="' + uri + '" type="application/pdf" style="width:100%;height:80vh;border:none;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.15);"><p class="text-center text-muted mt-4">PDF preview not supported in this browser. <a href="' + uri + '" download>Download PDF</a> to view.</p></object>';
+        $('#pdfPreviewWrapper').show();
+    }
+
+    function downloadPdf() {
+        if (!_reportData.length) { showToast('warning', 'Please generate the report first.'); return; }
+        const year = $('#filterYear').val() || 'All';
+        const doc  = buildPdfDoc(_reportData);
+        doc.save('DeptWiseReport_' + year + '.pdf');
+    }
+
+    function downloadExcel() {
+        if (!_reportData.length) { showToast('warning', 'Please generate the report first.'); return; }
+        const year  = $('#filterYear').val() || 'All';
+        const _d    = new Date();
+        const _mon  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const today = String(_d.getDate()).padStart(2,'0') + ' ' + _mon[_d.getMonth()] + ' ' + _d.getFullYear();
+        const COLS  = 10;
+
+        const DARK_BLUE  = '0D47A1';
+        const PALE_BLUE  = 'EDF5FF';
+        const WHITE      = 'FFFFFF';
+        const WHITE_TXT  = 'FFFFFF';
+        const BLACK_TXT  = '000000';
+
+        function cellStyle(bold, fillColor, fontColor, halign) {
+            return {
+                font:      { bold: !!bold, color: { rgb: fontColor || BLACK_TXT } },
+                fill:      { fgColor: { rgb: fillColor || WHITE } },
+                alignment: { horizontal: halign || 'right', vertical: 'center', wrapText: true },
+                border: {
+                    top:    { style: 'thin', color: { rgb: 'B4B4B4' } },
+                    bottom: { style: 'thin', color: { rgb: 'B4B4B4' } },
+                    left:   { style: 'thin', color: { rgb: 'B4B4B4' } },
+                    right:  { style: 'thin', color: { rgb: 'B4B4B4' } }
+                }
+            };
+        }
+
+        const wsData = [];
+        wsData.push(['Provincial Budget & Expenditure Report', ...Array(COLS-1).fill('')]);
+        wsData.push(['Department Wise Report Up to ' + today + '  |  Financial Year: ' + year, ...Array(COLS-1).fill('')]);
+        wsData.push(Array(COLS).fill(''));
+        wsData.push([
+            'Description', 'Allocated Budget', 'Original Budget Released', '% BE Released',
+            'Supplementary Budget', 'Transfer In', 'Transfer Out',
+            'Budget Surrender', 'Final Budget', 'Total Actual Expenditure'
+        ]);
+
+        _reportData.forEach(function (row) {
+            const obr   = row.originalBudgetReleased;
+            const alloc = row.allocatedBudget;
+            const pct   = alloc > 0 ? Math.round(obr / alloc * 100) + '%' : '0%';
+            const zero  = (v) => (Math.round(parseFloat(v)||0) === 0 ? '-' : Math.round(parseFloat(v)||0));
+            wsData.push([
+                row.description,
+                zero(row.allocatedBudget),
+                zero(row.originalBudgetReleased),
+                pct,
+                zero(row.supplementaryBudget),
+                zero(row.reAppPlus),
+                zero(row.reAppMinus),
+                zero(row.budgetSurrender),
+                zero(row.finalBudget),
+                zero(row.totalActualExpenditure)
+            ]);
+        });
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        ws['!cols'] = [
+            { wch: 38 }, { wch: 20 }, { wch: 22 }, { wch: 12 },
+            { wch: 20 }, { wch: 16 }, { wch: 16 },
+            { wch: 18 }, { wch: 18 }, { wch: 24 }
+        ];
+        ws['!rows'] = [
+            { hpt: 28 },
+            { hpt: 20 },
+            { hpt: 6  },
+            { hpt: 36 }
+        ];
+        ws['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: COLS-1 } },
+            { s: { r: 1, c: 0 }, e: { r: 1, c: COLS-1 } }
+        ];
+
+        const enc = XLSX.utils.encode_cell;
+
+        const titleCell = ws[enc({ r: 0, c: 0 })];
+        if (titleCell) {
+            titleCell.s = { font: { bold: true, sz: 16, color: { rgb: BLACK_TXT } },
+                            fill: { fgColor: { rgb: WHITE } },
+                            alignment: { horizontal: 'center', vertical: 'center' } };
+        }
+        const subCell = ws[enc({ r: 1, c: 0 })];
+        if (subCell) {
+            subCell.s = { font: { bold: true, sz: 11, color: { rgb: BLACK_TXT } },
+                          fill: { fgColor: { rgb: WHITE } },
+                          alignment: { horizontal: 'center', vertical: 'center' } };
+        }
+        for (let c = 0; c < COLS; c++) {
+            const hc = ws[enc({ r: 3, c })];
+            if (hc) hc.s = cellStyle(true, DARK_BLUE, WHITE_TXT, 'center');
+        }
+        _reportData.forEach(function (row, idx) {
+            const r = idx + 4;
+            let fill, fontColor, bold;
+            switch (row.rowType) {
+                case 'dept':        fill = DARK_BLUE; fontColor = WHITE_TXT; bold = true;  break;
+                case 'sector':       fill = PALE_BLUE; fontColor = BLACK_TXT; bold = false; break;
+                case 'grand_total':  fill = DARK_BLUE; fontColor = WHITE_TXT; bold = true;  break;
+                default:             fill = WHITE;     fontColor = BLACK_TXT; bold = false;
+            }
+            for (let c = 0; c < COLS; c++) {
+                const cell = ws[enc({ r, c })];
+                if (!cell) { ws[enc({ r, c })] = { t: 's', v: '' }; }
+                const halign = c === 0 ? 'left' : (c === 3 ? 'center' : 'right');
+                ws[enc({ r, c })].s = cellStyle(bold, fill, fontColor, halign);
+            }
+        });
+
+        XLSX.utils.book_append_sheet(wb, ws, 'Dept Wise Report');
+        XLSX.writeFile(wb, 'DeptWiseReport_' + year + '.xlsx');
+    }
+
+    function fmtN(v) {
+        const n = Math.round(parseFloat(v) || 0);
+        if (n === 0) return '-';
+        return n.toLocaleString('en-PK');
+    }
+</script>
+}

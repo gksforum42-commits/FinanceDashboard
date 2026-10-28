@@ -10,6 +10,10 @@ namespace FinanceDashboard.ViewModels
         public decimal TotalAllocatedBudget    { get; set; }          // SUM(allocated_budget)
         public decimal TotalBudgetGrant        { get; set; }          // SUM(BudgetGrant)
         public decimal TotalReleases           { get; set; }          // SUM(Releases)
+        public decimal TotalSupplementaryGrant   { get; set; }        // SUM(SupplementaryGrant)
+        public decimal TotalReappropriationPlus  { get; set; }        // SUM(ReappropriationPlus)
+        public decimal TotalReappropriationMinus { get; set; }        // SUM(ReappropriationMinus)
+        public decimal TotalSurrender             { get; set; }       // SUM(TSSSurrender)
         public decimal TotalFinalGrant         { get; set; }          // SUM(FinalGrant)
         public decimal TotalActualExpenditure  { get; set; }          // SUM(ActualExpenditure)
         public decimal TotalBalance            { get; set; }          // SUM(FinalGrantBalance)
@@ -19,6 +23,27 @@ namespace FinanceDashboard.ViewModels
             ? Math.Round(TotalReleases / TotalAllocatedBudget * 100, 2) : 0;
         public decimal UtilizationPercentage => TotalFinalGrant > 0
             ? Math.Round(TotalActualExpenditure / TotalFinalGrant * 100, 2) : 0;
+    }
+
+    public class DevBudgetReportViewModel
+    {
+        public int    FiscalYear          { get; set; }
+        public string? ParentProject      { get; set; }
+        public string  ProjectID          { get; set; } = string.Empty;
+        public string? ProjectDescription { get; set; }
+        public string? Gldesc               { get; set; }
+        public string? GsNo                 { get; set; }
+        public string? SectorName           { get; set; }
+        public decimal Allocation           { get; set; }
+        public decimal OriginalBudget       { get; set; }
+        public decimal SupplementaryBudget  { get; set; }
+        public decimal ReappPlus            { get; set; }
+        public decimal ReappMinus           { get; set; }
+        public decimal Surrender            { get; set; }
+        public decimal FinalBudget          { get; set; }
+        public decimal ProgReleases         { get; set; }
+        public decimal ProgressiveExp       { get; set; }
+        public decimal ReleaseByPDD         { get; set; }
     }
 
     public class DepartmentWiseReportViewModel
@@ -45,6 +70,10 @@ namespace FinanceDashboard.ViewModels
         public decimal TotalAllocatedBudget  { get; set; }   // SUM(allocated_budget)
         public decimal TotalBudgetGrant      { get; set; }   // SUM(BudgetGrant)
         public decimal TotalReleases         { get; set; }   // SUM(Releases)
+        public decimal TotalSupplementaryGrant   { get; set; } // SUM(SupplementaryGrant)
+        public decimal TotalReappropriationPlus  { get; set; } // SUM(ReappropriationPlus)
+        public decimal TotalReappropriationMinus { get; set; } // SUM(ReappropriationMinus)
+        public decimal TotalSurrender             { get; set; } // SUM(TSSSurrender)
         public decimal TotalFinalGrant       { get; set; }   // SUM(FinalGrant)
         public decimal TotalActualExpenditure{ get; set; }   // SUM(ActualExpenditure)
         public decimal TotalBalance          { get; set; }   // SUM(FinalGrantBalance)
@@ -72,6 +101,10 @@ namespace FinanceDashboard.ViewModels
         public decimal TotalAllocatedBudget   { get; set; }
         public decimal TotalBudgetGrant       { get; set; }
         public decimal TotalReleases          { get; set; }
+        public decimal TotalSupplementaryGrant   { get; set; }
+        public decimal TotalReappropriationPlus  { get; set; }
+        public decimal TotalReappropriationMinus { get; set; }
+        public decimal TotalSurrender          { get; set; }
         public decimal TotalFinalGrant        { get; set; }
         public decimal TotalActualExpenditure { get; set; }
         public decimal TotalBalance           { get; set; }
@@ -88,11 +121,17 @@ namespace FinanceDashboard.ViewModels
         public string  Department           { get; set; } = string.Empty;
         public string  FundCode             { get; set; } = string.Empty;
         public string? FundDescription      { get; set; }
+        public string  CostCenterCode       { get; set; } = string.Empty;
+        public string? CostCenterDescription { get; set; }
         public string  DetailObject         { get; set; } = string.Empty;
         public string? ObjectDescription    { get; set; }
         public decimal TotalAllocatedBudget { get; set; }
         public decimal TotalBudgetGrant     { get; set; }
         public decimal TotalReleases        { get; set; }
+        public decimal TotalSupplementaryGrant   { get; set; }
+        public decimal TotalReappropriationPlus  { get; set; }
+        public decimal TotalReappropriationMinus { get; set; }
+        public decimal TotalSurrender        { get; set; }
         public decimal TotalFinalGrant      { get; set; }
         public decimal TotalActualExpenditure { get; set; }
         public decimal TotalBalance         { get; set; }
@@ -146,6 +185,10 @@ namespace FinanceDashboard.ViewModels
         public decimal TotalAllocatedBudget  { get; set; }
         public decimal TotalBudgetGrant      { get; set; }
         public decimal TotalReleases         { get; set; }
+        public decimal TotalSupplementaryGrant   { get; set; }
+        public decimal TotalReappropriationPlus  { get; set; }
+        public decimal TotalReappropriationMinus { get; set; }
+        public decimal TotalSurrender         { get; set; }
         public decimal TotalFinalGrant       { get; set; }
         public decimal TotalActualExpenditure{ get; set; }
         public decimal TotalBalance          { get; set; }

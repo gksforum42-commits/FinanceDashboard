@@ -42,7 +42,7 @@
                                 <td>@user.FullName</td>
                                 <td>@user.Department</td>
                                 <td>@user.Designation</td>
-                                <td><span class="badge bg-primary">@(User.IsInRole("Administrator") && user.Email == "admin@finance.punjab.gov.pk" ? "Admin" : "User")</span></td>
+                                <td><span class="badge bg-primary">@(ViewBag.UserRoles is Dictionary<string, string> roles && roles.TryGetValue(user.Id, out var roleName) ? roleName : "User")</span></td>
                                 <td>
                                     @if (user.IsActive)
                                     {
@@ -99,17 +99,34 @@
                             <input type="text" id="userFullName" class="form-control" required />
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Role</label>
-                            <select id="userRole" class="form-select">
-                                <option value="EndUser">End User</option>
-                                <option value="Administrator">Administrator</option>
-                            </select>
+                            <label class="form-label">Role(s)</label>
+                            <div class="border rounded p-2" id="userRoleGroup" onchange="onRoleChange()">
+                                <div class="form-check">
+                                    <input class="form-check-input role-check" type="checkbox" value="EndUser" id="role_EndUser">
+                                    <label class="form-check-label" for="role_EndUser">End User</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input role-check" type="checkbox" value="DepartmentUser" id="role_DepartmentUser">
+                                    <label class="form-check-label" for="role_DepartmentUser">Department User</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input role-check" type="checkbox" value="SNEDepartmentUser" id="role_SNEDepartmentUser">
+                                    <label class="form-check-label" for="role_SNEDepartmentUser">SNE Department User</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input role-check" type="checkbox" value="Administrator" id="role_Administrator">
+                                    <label class="form-check-label" for="role_Administrator">Administrator</label>
+                                </div>
+                            </div>
+                            <div class="form-text">Select both Department User and SNE Department User to create a "Budget Officer" who accesses their department dashboard plus the Permanent Budget dashboard for the assigned departments.</div>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Department</label>
-                            <input type="text" id="userDepartment" class="form-control" />
+                            <label class="form-label">Department(s)</label>
+                            <select id="userDepartment" class="form-select" multiple size="5">
+                            </select>
+                            <div class="form-text">Required for Department User / SNE Department User roles — restricts this user to only the selected department(s)' data. A user with both Department User and SNE Department User roles (Budget Officer) may select multiple departments and will see the Permanent Budget dashboard for only those departments. Hold Ctrl/Cmd to select multiple.</div>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Designation</label>
@@ -134,7 +151,37 @@
     <script>
         $(document).ready(function () {
             $('#usersTable').DataTable({ pageLength: 25, order: [[7, 'desc']] });
+            loadDepartmentOptions();
         });
+
+        function loadDepartmentOptions() {
+            ajaxGet('/Dashboard/GetDepartmentLookup', {}, function (r) {
+                if (r.success) {
+                    const sel = $('#userDepartment');
+                    sel.empty();
+                    r.data.forEach(function (item) {
+                        sel.append(`<option value="${item.value}">${item.text}</option>`);
+                    });
+                }
+            });
+        }
+
+        function getSelectedRoles() {
+            return $('.role-check:checked').map(function () { return $(this).val(); }).get();
+        }
+
+        function setSelectedRoles(roles) {
+            $('.role-check').prop('checked', false);
+            (roles || []).forEach(function (role) {
+                $('#role_' + role).prop('checked', true);
+            });
+        }
+
+        function onRoleChange() {
+            const roles = getSelectedRoles();
+            const needsDepartment = roles.includes('DepartmentUser') || roles.includes('SNEDepartmentUser');
+            $('#userDepartment').prop('required', needsDepartment);
+        }
 
         let isEditing = false;
 
@@ -145,6 +192,8 @@
             $('#userId').val('');
             $('#passwordField').show();
             $('#userPassword').prop('required', true);
+            setSelectedRoles([]);
+            onRoleChange();
         }
 
         function editUser(id) {
@@ -161,24 +210,40 @@
                     $('#userId').val(u.id);
                     $('#userEmail').val(u.email);
                     $('#userFullName').val(u.fullName);
-                    $('#userDepartment').val(u.department);
+                    $('#userDepartment').val(u.department ? u.department.split(',').map(d => d.trim()) : []);
                     $('#userDesignation').val(u.designation);
                     $('#userIsActive').prop('checked', u.isActive);
-                    if (r.data.roles.length > 0) $('#userRole').val(r.data.roles[0]);
+                    setSelectedRoles(r.data.roles);
+                    onRoleChange();
                     $('#userModal').modal('show');
                 }
             });
         }
 
         function saveUser() {
+            const selectedDepartments = $('#userDepartment').val() || [];
+            const selectedRoles = getSelectedRoles();
             const data = {
                 Email: $('#userEmail').val(),
                 FullName: $('#userFullName').val(),
-                Department: $('#userDepartment').val(),
+                Department: selectedDepartments.join(','),
                 Designation: $('#userDesignation').val(),
                 IsActive: $('#userIsActive').is(':checked'),
-                Role: $('#userRole').val()
+                Roles: selectedRoles
             };
+
+            if (selectedRoles.length === 0) {
+                showToast('error', 'Please select at least one role.');
+                return;
+            }
+
+            const isDepartmentUser = selectedRoles.includes('DepartmentUser');
+            const isSneUser = selectedRoles.includes('SNEDepartmentUser');
+
+            if ((isDepartmentUser || isSneUser) && selectedDepartments.length === 0) {
+                showToast('error', 'Please select at least one Department for a Department User / SNE Department User.');
+                return;
+            }
 
             if (!isEditing) {
                 data.Password = $('#userPassword').val();

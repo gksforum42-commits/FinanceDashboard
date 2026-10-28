@@ -5,6 +5,7 @@ using FinanceDashboard.Models;
 using FinanceDashboard.ViewModels;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Data;
 
 namespace FinanceDashboard.Repositories
@@ -14,20 +15,25 @@ namespace FinanceDashboard.Repositories
         private readonly ApplicationDbContext _context;
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly IMemoryCache _cache;
+        private static readonly TimeSpan LookupCacheDuration = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan ReportCacheDuration = TimeSpan.FromMinutes(3);
 
-        public BudgetRepository(ApplicationDbContext context, IConfiguration configuration)
+        public BudgetRepository(ApplicationDbContext context, IConfiguration configuration, IMemoryCache cache)
         {
             _context = context;
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection")!;
+            _cache = cache;
         }
 
         private SqlConnection CreateConnection() => new SqlConnection(_connectionString);
 
         // Dashboard
-        public async Task<DashboardSummaryViewModel> GetDashboardSummaryAsync(int? financialYear = null)
+        public async Task<DashboardSummaryViewModel> GetDashboardSummaryAsync(int? financialYear = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     -- Allocated Budget per sector
@@ -59,26 +65,41 @@ namespace FinanceDashboard.Repositories
                      ORDER BY ISNULL(CompletedDate, ImportedDate) DESC) AS BerLastUpdated
                 FROM budget.BERData WITH (NOLOCK)
                 WHERE (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 OPTION (RECOMPILE);";
 
             var summary = await connection.QueryFirstOrDefaultAsync<DashboardSummaryViewModel>(
-                sql, new { FinancialYear = financialYear }, commandTimeout: 120);
+                sql,
+                new
+                {
+                    FinancialYear = financialYear,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
+                commandTimeout: 120);
 
             return summary ?? new DashboardSummaryViewModel();
         }
 
-        public async Task<List<ChartDataViewModel>> GetBudgetChartDataAsync(int? financialYear = null)
+        public async Task<List<ChartDataViewModel>> GetBudgetChartDataAsync(int? financialYear = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
             var charts = new List<ChartDataViewModel>();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
 
             // Fund-wise Allocated Budget distribution from BERData
             var fundData = await connection.QueryAsync(
                 @"SELECT TOP 10 FundCode AS Label, ISNULL(SUM(allocated_budget), 0) AS Value
                   FROM budget.BERData WITH (NOLOCK)
                   WHERE (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
+                    AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                   GROUP BY FundCode ORDER BY Value DESC",
-                new { FinancialYear = financialYear });
+                new
+                {
+                    FinancialYear = financialYear,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                });
 
             charts.Add(new ChartDataViewModel
             {
@@ -90,9 +111,10 @@ namespace FinanceDashboard.Repositories
             return charts;
         }
 
-        public async Task<List<MonthlyExpenditureViewModel>> GetMonthlyExpenditureAsync(int financialYear, string? fundCode = null)
+        public async Task<List<MonthlyExpenditureViewModel>> GetMonthlyExpenditureAsync(int financialYear, string? fundCode = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     v.MonthOrder,
@@ -121,12 +143,19 @@ namespace FinanceDashboard.Repositories
                 ) AS v(MonthOrder, Month)
                 WHERE b.FinancialYear = @FinancialYear
                   AND (@FundCode IS NULL OR b.FundCode = @FundCode)
+                  AND (@HasRestrictedDepartments = 0 OR b.MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY v.MonthOrder, v.Month
                 ORDER BY v.MonthOrder;";
 
             var result = await connection.QueryAsync<MonthlyExpenditureViewModel>(
                 sql,
-                new { FinancialYear = financialYear, FundCode = fundCode },
+                new
+                {
+                    FinancialYear = financialYear,
+                    FundCode = fundCode,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
                 commandTimeout: 120);
             return result.ToList();
         }
@@ -201,10 +230,13 @@ namespace FinanceDashboard.Repositories
             using var connection = CreateConnection();
             await connection.OpenAsync();
 
-            using var bulkCopy = new SqlBulkCopy(connection)
+            // TableLock takes a bulk-update table lock instead of row/page locks, which avoids
+            // the per-batch lock-escalation overhead that stalls badly on memory-constrained
+            // shared hosts (e.g. MonsterASP) when 6 nonclustered indexes must be maintained.
+            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, null)
             {
                 DestinationTableName = "budget.OriginalBudget",
-                BatchSize = 10000,
+                BatchSize = 5000,
                 BulkCopyTimeout = 600
             };
 
@@ -376,10 +408,10 @@ namespace FinanceDashboard.Repositories
             using var connection = CreateConnection();
             await connection.OpenAsync();
 
-            using var bulkCopy = new SqlBulkCopy(connection)
+            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, null)
             {
                 DestinationTableName = "budget.BerSapData",
-                BatchSize = 50000,
+                BatchSize = 10000,
                 BulkCopyTimeout = 600
             };
 
@@ -441,8 +473,506 @@ namespace FinanceDashboard.Repositories
             return records.Count;
         }
 
+        public async Task TruncatePnDFileAsync()
+        {
+            using var connection = CreateConnection();
+            await connection.ExecuteAsync(
+                "TRUNCATE TABLE budget.pndFile;",
+                commandTimeout: 120);
+        }
 
-        // Import History
+        public async Task<int> InsertPnDFileAsync(List<PnDFile> records)
+        {
+            using var connection = CreateConnection();
+            await connection.OpenAsync();
+
+            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, null)
+            {
+                DestinationTableName = "budget.pndFile",
+                BatchSize = 5000,
+                BulkCopyTimeout = 600
+            };
+
+            var dataTable = new DataTable();
+            dataTable.Columns.Add("SRNo", typeof(string));
+            dataTable.Columns.Add("GSNo", typeof(int));
+            dataTable.Columns.Add("SchemeNo", typeof(string));
+            dataTable.Columns.Add("FullSchemeNo", typeof(string));
+            dataTable.Columns.Add("LoNumberCapital", typeof(string));
+            dataTable.Columns.Add("LoNumberRevenue", typeof(string));
+            dataTable.Columns.Add("Name", typeof(string));
+            dataTable.Columns.Add("District", typeof(string));
+            dataTable.Columns.Add("DistrictName", typeof(string));
+            dataTable.Columns.Add("Scope", typeof(string));
+            dataTable.Columns.Add("Objectives", typeof(string));
+            dataTable.Columns.Add("IssueRemarks", typeof(string));
+            dataTable.Columns.Add("GestationPeriod", typeof(string));
+            dataTable.Columns.Add("ApprovalStatus", typeof(string));
+            dataTable.Columns.Add("InitialCost", typeof(decimal));
+            dataTable.Columns.Add("Cost", typeof(decimal));
+            dataTable.Columns.Add("ExpenseUptoJune", typeof(decimal));
+            dataTable.Columns.Add("ActualExpenditureUptoJune2026", typeof(decimal));
+            dataTable.Columns.Add("LocalSouthPunjab", typeof(decimal));
+            dataTable.Columns.Add("ForeignSouthPunjab", typeof(decimal));
+            dataTable.Columns.Add("AllocationSouthPunjab", typeof(decimal));
+            dataTable.Columns.Add("LocalAllocation", typeof(decimal));
+            dataTable.Columns.Add("ForeignAllocation", typeof(decimal));
+            dataTable.Columns.Add("Allocation", typeof(decimal));
+            dataTable.Columns.Add("LocalRevisedAllocation", typeof(decimal));
+            dataTable.Columns.Add("ForeignRevisedAllocation", typeof(decimal));
+            dataTable.Columns.Add("RevisedAllocation", typeof(decimal));
+            dataTable.Columns.Add("LocalPDDRelease", typeof(decimal));
+            dataTable.Columns.Add("ForeignPDDRelease", typeof(decimal));
+            dataTable.Columns.Add("ReleaseByPDD", typeof(decimal));
+            dataTable.Columns.Add("ReleaseReceivedByAD", typeof(decimal));
+            dataTable.Columns.Add("FDRelease", typeof(decimal));
+            dataTable.Columns.Add("SpendingRelease", typeof(decimal));
+            dataTable.Columns.Add("UtilizationPifra", typeof(decimal));
+            dataTable.Columns.Add("TotalThrowForward", typeof(decimal));
+            dataTable.Columns.Add("Utilization", typeof(decimal));
+            dataTable.Columns.Add("PctUtilCont", typeof(decimal));
+            dataTable.Columns.Add("PctUtilRevAlloc", typeof(decimal));
+            dataTable.Columns.Add("SectorID", typeof(int));
+            dataTable.Columns.Add("SectorOrder", typeof(int));
+            dataTable.Columns.Add("SectorName", typeof(string));
+            dataTable.Columns.Add("SchemeType", typeof(string));
+            dataTable.Columns.Add("SchemeSubType", typeof(string));
+            dataTable.Columns.Add("AcToBeCredited", typeof(string));
+            dataTable.Columns.Add("ProjectStatusType", typeof(string));
+            dataTable.Columns.Add("ApprovalForum", typeof(string));
+            dataTable.Columns.Add("AA", typeof(string));
+            dataTable.Columns.Add("TS", typeof(string));
+            dataTable.Columns.Add("ExecutingAgency", typeof(string));
+            dataTable.Columns.Add("SponsoringAgency", typeof(string));
+            dataTable.Columns.Add("IsSNERequired", typeof(string));
+            dataTable.Columns.Add("IsPCI", typeof(string));
+            dataTable.Columns.Add("AttachDepartment", typeof(string));
+            dataTable.Columns.Add("AdminDepartment", typeof(string));
+            dataTable.Columns.Add("IsMOM", typeof(string));
+            dataTable.Columns.Add("IsAA", typeof(string));
+            dataTable.Columns.Add("ProjectID", typeof(int));
+            dataTable.Columns.Add("CreatedAt", typeof(DateTime));
+
+            foreach (var record in records)
+            {
+                var row = dataTable.NewRow();
+                row["SRNo"] = (object?)record.SRNo ?? DBNull.Value;
+                row["GSNo"] = (object?)record.GSNo ?? DBNull.Value;
+                row["SchemeNo"] = (object?)record.SchemeNo ?? DBNull.Value;
+                row["FullSchemeNo"] = (object?)record.FullSchemeNo ?? DBNull.Value;
+                row["LoNumberCapital"] = (object?)record.LoNumberCapital ?? DBNull.Value;
+                row["LoNumberRevenue"] = (object?)record.LoNumberRevenue ?? DBNull.Value;
+                row["Name"] = (object?)record.Name ?? DBNull.Value;
+                row["District"] = (object?)record.District ?? DBNull.Value;
+                row["DistrictName"] = (object?)record.DistrictName ?? DBNull.Value;
+                row["Scope"] = (object?)record.Scope ?? DBNull.Value;
+                row["Objectives"] = (object?)record.Objectives ?? DBNull.Value;
+                row["IssueRemarks"] = (object?)record.IssueRemarks ?? DBNull.Value;
+                row["GestationPeriod"] = (object?)record.GestationPeriod ?? DBNull.Value;
+                row["ApprovalStatus"] = (object?)record.ApprovalStatus ?? DBNull.Value;
+                row["InitialCost"] = (object?)record.InitialCost ?? DBNull.Value;
+                row["Cost"] = (object?)record.Cost ?? DBNull.Value;
+                row["ExpenseUptoJune"] = (object?)record.ExpenseUptoJune ?? DBNull.Value;
+                row["ActualExpenditureUptoJune2026"] = (object?)record.ActualExpenditureUptoJune2026 ?? DBNull.Value;
+                row["LocalSouthPunjab"] = (object?)record.LocalSouthPunjab ?? DBNull.Value;
+                row["ForeignSouthPunjab"] = (object?)record.ForeignSouthPunjab ?? DBNull.Value;
+                row["AllocationSouthPunjab"] = (object?)record.AllocationSouthPunjab ?? DBNull.Value;
+                row["LocalAllocation"] = (object?)record.LocalAllocation ?? DBNull.Value;
+                row["ForeignAllocation"] = (object?)record.ForeignAllocation ?? DBNull.Value;
+                row["Allocation"] = (object?)record.Allocation ?? DBNull.Value;
+                row["LocalRevisedAllocation"] = (object?)record.LocalRevisedAllocation ?? DBNull.Value;
+                row["ForeignRevisedAllocation"] = (object?)record.ForeignRevisedAllocation ?? DBNull.Value;
+                row["RevisedAllocation"] = (object?)record.RevisedAllocation ?? DBNull.Value;
+                row["LocalPDDRelease"] = (object?)record.LocalPDDRelease ?? DBNull.Value;
+                row["ForeignPDDRelease"] = (object?)record.ForeignPDDRelease ?? DBNull.Value;
+                row["ReleaseByPDD"] = (object?)record.ReleaseByPDD ?? DBNull.Value;
+                row["ReleaseReceivedByAD"] = (object?)record.ReleaseReceivedByAD ?? DBNull.Value;
+                row["FDRelease"] = (object?)record.FDRelease ?? DBNull.Value;
+                row["SpendingRelease"] = (object?)record.SpendingRelease ?? DBNull.Value;
+                row["UtilizationPifra"] = (object?)record.UtilizationPifra ?? DBNull.Value;
+                row["TotalThrowForward"] = (object?)record.TotalThrowForward ?? DBNull.Value;
+                row["Utilization"] = (object?)record.Utilization ?? DBNull.Value;
+                row["PctUtilCont"] = (object?)record.PctUtilCont ?? DBNull.Value;
+                row["PctUtilRevAlloc"] = (object?)record.PctUtilRevAlloc ?? DBNull.Value;
+                row["SectorID"] = (object?)record.SectorID ?? DBNull.Value;
+                row["SectorOrder"] = (object?)record.SectorOrder ?? DBNull.Value;
+                row["SectorName"] = (object?)record.SectorName ?? DBNull.Value;
+                row["SchemeType"] = (object?)record.SchemeType ?? DBNull.Value;
+                row["SchemeSubType"] = (object?)record.SchemeSubType ?? DBNull.Value;
+                row["AcToBeCredited"] = (object?)record.AcToBeCredited ?? DBNull.Value;
+                row["ProjectStatusType"] = (object?)record.ProjectStatusType ?? DBNull.Value;
+                row["ApprovalForum"] = (object?)record.ApprovalForum ?? DBNull.Value;
+                row["AA"] = (object?)record.AA ?? DBNull.Value;
+                row["TS"] = (object?)record.TS ?? DBNull.Value;
+                row["ExecutingAgency"] = (object?)record.ExecutingAgency ?? DBNull.Value;
+                row["SponsoringAgency"] = (object?)record.SponsoringAgency ?? DBNull.Value;
+                row["IsSNERequired"] = (object?)record.IsSNERequired ?? DBNull.Value;
+                row["IsPCI"] = (object?)record.IsPCI ?? DBNull.Value;
+                row["AttachDepartment"] = (object?)record.AttachDepartment ?? DBNull.Value;
+                row["AdminDepartment"] = (object?)record.AdminDepartment ?? DBNull.Value;
+                row["IsMOM"] = (object?)record.IsMOM ?? DBNull.Value;
+                row["IsAA"] = (object?)record.IsAA ?? DBNull.Value;
+                row["ProjectID"] = (object?)record.ProjectID ?? DBNull.Value;
+                row["CreatedAt"] = record.CreatedAt;
+                dataTable.Rows.Add(row);
+            }
+
+            foreach (DataColumn col in dataTable.Columns)
+                bulkCopy.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+
+            await bulkCopy.WriteToServerAsync(dataTable);
+            return records.Count;
+        }
+
+        public async Task<List<PnDFile>> GetAllPnDFilesAsync()
+        {
+            using var connection = CreateConnection();
+            var rows = await connection.QueryAsync<PnDFile>(
+                "SELECT GSNo, LoNumberCapital, LoNumberRevenue, SectorID, SectorName FROM budget.pndFile;",
+                commandTimeout: 120);
+            return rows.ToList();
+        }
+
+        public async Task<int> UpsertPdSecAsync(List<PdSec> records)
+        {
+            if (records.Count == 0) return 0;
+
+            using var connection = CreateConnection();
+            await connection.OpenAsync();
+
+            // Stage the incoming rows in a temp table, then MERGE into budget.pdSec
+            // keyed on Project (upsert on the basis of Project).
+            await connection.ExecuteAsync(@"
+                IF OBJECT_ID('tempdb..#PdSecStaging') IS NOT NULL DROP TABLE #PdSecStaging;
+                CREATE TABLE #PdSecStaging
+                (
+                    GSNo INT NULL,
+                    SectorID INT NULL,
+                    SectorName NVARCHAR(100) NULL,
+                    Project NVARCHAR(20) NULL,
+                    sectorDesc NVARCHAR(100) NULL
+                );",
+                commandTimeout: 120);
+
+            using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, null)
+            {
+                DestinationTableName = "#PdSecStaging",
+                BatchSize = 5000,
+                BulkCopyTimeout = 600
+            })
+            {
+                var dataTable = new DataTable();
+                dataTable.Columns.Add("GSNo", typeof(int));
+                dataTable.Columns.Add("SectorID", typeof(int));
+                dataTable.Columns.Add("SectorName", typeof(string));
+                dataTable.Columns.Add("Project", typeof(string));
+                dataTable.Columns.Add("sectorDesc", typeof(string));
+
+                foreach (var record in records)
+                {
+                    var row = dataTable.NewRow();
+                    row["GSNo"] = (object?)record.GSNo ?? DBNull.Value;
+                    row["SectorID"] = (object?)record.SectorID ?? DBNull.Value;
+                    row["SectorName"] = (object?)record.SectorName ?? DBNull.Value;
+                    row["Project"] = (object?)record.Project ?? DBNull.Value;
+                    row["sectorDesc"] = (object?)record.sectorDesc ?? DBNull.Value;
+                    dataTable.Rows.Add(row);
+                }
+
+                foreach (DataColumn col in dataTable.Columns)
+                    bulkCopy.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+
+                await bulkCopy.WriteToServerAsync(dataTable);
+            }
+
+            var affected = await connection.ExecuteAsync(@"
+                MERGE budget.pdSec AS target
+                USING (
+                    SELECT Project, MAX(GSNo) AS GSNo, MAX(SectorID) AS SectorID,
+                           MAX(SectorName) AS SectorName, MAX(sectorDesc) AS sectorDesc
+                    FROM #PdSecStaging
+                    GROUP BY Project
+                ) AS source
+                ON target.Project COLLATE DATABASE_DEFAULT = source.Project COLLATE DATABASE_DEFAULT
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        target.GSNo = source.GSNo,
+                        target.SectorID = source.SectorID,
+                        target.SectorName = source.SectorName,
+                        target.sectorDesc = source.sectorDesc
+                WHEN NOT MATCHED BY TARGET THEN
+                    INSERT (GSNo, SectorID, SectorName, Project, sectorDesc)
+                    VALUES (source.GSNo, source.SectorID, source.SectorName, source.Project, source.sectorDesc);
+
+                DROP TABLE #PdSecStaging;",
+                commandTimeout: 300);
+
+            return affected;
+        }
+
+        public async Task<int> UpdatePdSecFromPnDFileAsync()
+        {
+            var pndRecords = await GetAllPnDFilesAsync();
+
+            var pdSecRows = new List<PdSec>();
+            var seenProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            static IEnumerable<string> SplitCodes(string? value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) yield break;
+                foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = part.Trim();
+                    if (!string.IsNullOrEmpty(trimmed)) yield return trimmed;
+                }
+            }
+
+            foreach (var pnd in pndRecords)
+            {
+                if (string.IsNullOrWhiteSpace(pnd.LoNumberCapital) && string.IsNullOrWhiteSpace(pnd.LoNumberRevenue))
+                    continue;
+
+                var sectorDesc = pnd.SectorID.HasValue && !string.IsNullOrWhiteSpace(pnd.SectorName)
+                    ? $"{pnd.SectorID}.{pnd.SectorName}"
+                    : null;
+
+                var codes = SplitCodes(pnd.LoNumberCapital).Concat(SplitCodes(pnd.LoNumberRevenue));
+
+                foreach (var project in codes)
+                {
+                    // Last one wins per Project code when the same project appears more than once in this batch.
+                    seenProjects.Add(project);
+                    pdSecRows.RemoveAll(r => string.Equals(r.Project, project, StringComparison.OrdinalIgnoreCase));
+                    pdSecRows.Add(new PdSec
+                    {
+                        GSNo = pnd.GSNo,
+                        SectorID = pnd.SectorID,
+                        SectorName = pnd.SectorName,
+                        Project = project,
+                        sectorDesc = sectorDesc
+                    });
+                }
+            }
+
+            return await UpsertPdSecAsync(pdSecRows);
+        }
+
+        public async Task DeleteYpProjectByYearAsync(int fiscalYear)
+        {
+            using var connection = CreateConnection();
+            await connection.ExecuteAsync(
+                "DELETE FROM budget.ypProject WHERE FiscalYear = @FiscalYear;",
+                new { FiscalYear = fiscalYear },
+                commandTimeout: 120);
+        }
+
+        public async Task<int> InsertYpProjectAsync(List<YpProject> records)
+        {
+            using var connection = CreateConnection();
+            await connection.OpenAsync();
+
+            using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, null)
+            {
+                DestinationTableName = "budget.ypProject",
+                BatchSize = 10000,
+                BulkCopyTimeout = 600
+            };
+
+            var dataTable = new DataTable();
+            dataTable.Columns.Add("FiscalYear", typeof(int));
+            dataTable.Columns.Add("ParentProject", typeof(string));
+            dataTable.Columns.Add("ProjectID", typeof(string));
+            dataTable.Columns.Add("WBSElement", typeof(string));
+            dataTable.Columns.Add("ProfitCenter", typeof(string));
+            dataTable.Columns.Add("CostCenter", typeof(string));
+            dataTable.Columns.Add("MinistryDept", typeof(string));
+            dataTable.Columns.Add("AttachedDept", typeof(string));
+            dataTable.Columns.Add("DetailFunctionCode", typeof(int));
+            dataTable.Columns.Add("OriginalBudget", typeof(decimal));
+            dataTable.Columns.Add("SupplementaryBudget", typeof(decimal));
+            dataTable.Columns.Add("Surrender", typeof(decimal));
+            dataTable.Columns.Add("ReappPlus", typeof(decimal));
+            dataTable.Columns.Add("ReappMinus", typeof(decimal));
+            dataTable.Columns.Add("FinalBudget", typeof(decimal));
+            dataTable.Columns.Add("ProgReleases", typeof(decimal));
+            dataTable.Columns.Add("InterimDateExp", typeof(decimal));
+            dataTable.Columns.Add("ProgressiveExp", typeof(decimal));
+            dataTable.Columns.Add("Balance", typeof(decimal));
+            dataTable.Columns.Add("SectorID", typeof(string));
+            dataTable.Columns.Add("SubSect", typeof(string));
+            dataTable.Columns.Add("Fund", typeof(string));
+            dataTable.Columns.Add("JulyExp", typeof(decimal));
+            dataTable.Columns.Add("AugustExp", typeof(decimal));
+            dataTable.Columns.Add("SeptemberExp", typeof(decimal));
+            dataTable.Columns.Add("OctoberExp", typeof(decimal));
+            dataTable.Columns.Add("NovemberExp", typeof(decimal));
+            dataTable.Columns.Add("DecemberExp", typeof(decimal));
+            dataTable.Columns.Add("JanuaryExp", typeof(decimal));
+            dataTable.Columns.Add("FebruaryExp", typeof(decimal));
+            dataTable.Columns.Add("MarchExp", typeof(decimal));
+            dataTable.Columns.Add("AprilExp", typeof(decimal));
+            dataTable.Columns.Add("MayExp", typeof(decimal));
+            dataTable.Columns.Add("JuneExp", typeof(decimal));
+            dataTable.Columns.Add("ProjectDescription", typeof(string));
+
+            foreach (var record in records)
+            {
+                dataTable.Rows.Add(
+                    record.FiscalYear, record.ParentProject, record.ProjectID, record.WBSElement,
+                    record.ProfitCenter, record.CostCenter, record.MinistryDept, record.AttachedDept,
+                    record.DetailFunctionCode, record.OriginalBudget, record.SupplementaryBudget,
+                    record.Surrender, record.ReappPlus, record.ReappMinus, record.FinalBudget,
+                    record.ProgReleases, record.InterimDateExp, record.ProgressiveExp, record.Balance,
+                    record.SectorID, record.SubSect, record.Fund,
+                    record.JulyExp, record.AugustExp, record.SeptemberExp, record.OctoberExp,
+                    record.NovemberExp, record.DecemberExp, record.JanuaryExp, record.FebruaryExp,
+                    record.MarchExp, record.AprilExp, record.MayExp, record.JuneExp,
+                    record.ProjectDescription
+                );
+            }
+
+            foreach (DataColumn col in dataTable.Columns)
+                bulkCopy.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+
+            await bulkCopy.WriteToServerAsync(dataTable);
+            return records.Count;
+        }
+
+        public async Task DeleteDevExpByYearAsync(int fiscalYear)
+        {
+            using var connection = CreateConnection();
+            await connection.ExecuteAsync(
+                "DELETE FROM budget.devExp WHERE FiscalYear = @FiscalYear;",
+                new { FiscalYear = fiscalYear },
+                commandTimeout: 120);
+        }
+
+        public async Task<int> MergeYpProjectIntoDevExpAsync(int fiscalYear)
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                INSERT INTO budget.devExp
+                (
+                    FiscalYear,
+                    ParentProject,
+                    ProjectID,
+                    WBSElement,
+                    ProfitCenter,
+                    CostCenter,
+                    MinistryDept,
+                    AttachedDept,
+                    DetailFunctionCode,
+                    SectorID,
+                    Fund,
+                    ProjectDescription,
+                    OriginalBudget,
+                    SupplementaryBudget,
+                    Surrender,
+                    ReappPlus,
+                    ReappMinus,
+                    FinalBudget,
+                    ProgReleases,
+                    InterimDateExp,
+                    ProgressiveExp,
+                    Balance,
+                    SubSect,
+                    JulyExp,
+                    AugustExp,
+                    SeptemberExp,
+                    OctoberExp,
+                    NovemberExp,
+                    DecemberExp,
+                    JanuaryExp,
+                    FebruaryExp,
+                    MarchExp,
+                    AprilExp,
+                    MayExp,
+                    JuneExp,
+                    Allocation
+                )
+                SELECT
+                    COALESCE(y.FiscalYear, d.FiscalYear),
+                    COALESCE(y.ParentProject, d.ParentProject),
+                    COALESCE(y.ProjectID, d.ProjectID),
+                    COALESCE(y.WBSElement, d.WBSElement),
+                    y.ProfitCenter,
+                    COALESCE(y.CostCenter, d.CostCenter),
+                    y.MinistryDept,
+                    COALESCE(y.AttachedDept, d.AttachedDeptDesc),
+                    COALESCE(y.DetailFunctionCode, d.DetailFunction),
+                    COALESCE(y.SectorID, d.SectorID),
+                    COALESCE(y.Fund, d.Fund),
+                    y.ProjectDescription,
+                    y.OriginalBudget,
+                    y.SupplementaryBudget,
+                    y.Surrender,
+                    y.ReappPlus,
+                    y.ReappMinus,
+                    y.FinalBudget,
+                    y.ProgReleases,
+                    y.InterimDateExp,
+                    y.ProgressiveExp,
+                    y.Balance,
+                    COALESCE(y.SubSect, d.SubSect),
+                    y.JulyExp,
+                    y.AugustExp,
+                    y.SeptemberExp,
+                    y.OctoberExp,
+                    y.NovemberExp,
+                    y.DecemberExp,
+                    y.JanuaryExp,
+                    y.FebruaryExp,
+                    y.MarchExp,
+                    y.AprilExp,
+                    y.MayExp,
+                    y.JuneExp,
+                    d.OriginalBudget
+                FROM budget.ypProject y
+                FULL OUTER JOIN budget.devOb d
+                    ON LTRIM(RTRIM(y.ProjectID))   = LTRIM(RTRIM(d.ProjectID))
+                   AND LTRIM(RTRIM(y.WBSElement)) = LTRIM(RTRIM(d.WBSElement))
+                WHERE COALESCE(y.FiscalYear, d.FiscalYear) = @FiscalYear;";
+
+            return await connection.ExecuteAsync(sql, new { FiscalYear = fiscalYear }, commandTimeout: 300);
+        }
+
+        public async Task<int> UpdateDevExpGlCodeAsync()
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                UPDATE budget.devExp
+                SET glcode = SUBSTRING(WBSElement, CHARINDEX('-', WBSElement) + 1, 6)
+                WHERE CHARINDEX('-', WBSElement) > 0;";
+
+            return await connection.ExecuteAsync(sql, commandTimeout: 120);
+        }
+
+        public async Task<int> UpdateDevExpGlDescriptionAsync()
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                UPDATE d
+                SET d.gldesc = g.Gl_desc
+                FROM budget.devExp d
+                INNER JOIN budget.GL_Codes g
+                    ON LTRIM(RTRIM(d.glcode)) = LTRIM(RTRIM(g.gl_code));";
+
+            return await connection.ExecuteAsync(sql, commandTimeout: 120);
+        }
+
+        public async Task<int> UpdateDevExpPnDSectorAsync()
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                UPDATE d
+                SET d.pndSector = p.sectorDesc
+                FROM budget.devExp d
+                INNER JOIN budget.pdSec p
+                    ON LTRIM(RTRIM(d.ParentProject)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(p.Project)) COLLATE DATABASE_DEFAULT;";
+
+            return await connection.ExecuteAsync(sql, commandTimeout: 120);
+        }
+
         public async Task<List<ImportHistory>> GetImportHistoryAsync(string? importType = null, int pageNumber = 1, int pageSize = 20)
         {
             using var connection = CreateConnection();
@@ -479,6 +1009,20 @@ namespace FinanceDashboard.Repositories
             await _context.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Cheap progress heartbeat written after each insert batch during a large BER import.
+        /// Uses a raw connection (not the EF context) so it never conflicts with EF change
+        /// tracking on the long-lived background scope, and lets the poller show real progress
+        /// (and prove the background job is still alive) instead of appearing frozen at 50%.
+        /// </summary>
+        public async Task UpdateImportHeartbeatAsync(long importId, int recordsSoFar)
+        {
+            using var connection = CreateConnection();
+            await connection.ExecuteAsync(
+                "UPDATE budget.ImportHistory SET RecordsImported = @RecordsSoFar WHERE Id = @ImportId",
+                new { RecordsSoFar = recordsSoFar, ImportId = importId });
+        }
+
         public async Task<bool> DeleteImportAsync(long importId, string deletedBy)
         {
             using var connection = CreateConnection();
@@ -510,8 +1054,13 @@ namespace FinanceDashboard.Repositories
             return result.ToList();
         }
 
-        public async Task<List<LookupItem>> GetFundLookupAsync(int? financialYear = null, string? departmentCode = null, string? sector = null)
+        public async Task<List<LookupItem>> GetFundLookupAsync(int? financialYear = null, string? departmentCode = null, string? sector = null, List<string>? restrictedDepartments = null)
         {
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+            var cacheKey = $"Lookup_Fund_{financialYear}_{departmentCode}_{sector}_{(hasRestrictedDepartments ? string.Join(",", restrictedDepartments!) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<LookupItem>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
             var sql = @"
                 SELECT DISTINCT
@@ -523,29 +1072,163 @@ namespace FinanceDashboard.Repositories
                   AND (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
                   AND (@Sector IS NULL OR Sector = @Sector)
                   AND (@DepartmentCode IS NULL OR MinistryDepartment = @DepartmentCode)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY FundCode
                 ORDER BY FundCode;";
 
             var result = await connection.QueryAsync<LookupItem>(
-                sql, new { FinancialYear = financialYear, DepartmentCode = departmentCode, Sector = sector });
-            return result.ToList();
+                sql, new
+                {
+                    FinancialYear = financialYear,
+                    DepartmentCode = departmentCode,
+                    Sector = sector,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                });
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
         }
 
         public async Task<List<int>> GetFinancialYearsAsync()
         {
+            const string cacheKey = "Lookup_FinancialYears";
+            if (_cache.TryGetValue(cacheKey, out List<int>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
             var years = await connection.QueryAsync<int>(
                 @"SELECT DISTINCT FinancialYear FROM budget.OriginalBudget WHERE IsDeleted = 0
                   UNION
                   SELECT DISTINCT FinancialYear FROM budget.BERData
                   ORDER BY FinancialYear DESC");
-            return years.ToList();
+            var list = years.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
+        }
+
+        // Dev Budget Report
+        public async Task<List<DevBudgetReportViewModel>> GetDevBudgetReportAsync(int? financialYear = null, List<string>? parentProjects = null, List<string>? gsNos = null, List<string>? sectors = null, List<string>? restrictedDepartments = null)
+        {
+            using var connection = CreateConnection();
+            var hasProjects = parentProjects != null && parentProjects.Count > 0;
+            var hasGsNos = gsNos != null && gsNos.Count > 0;
+            var hasSectors = sectors != null && sectors.Count > 0;
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+            var sql = @"
+                SELECT
+                    d.FiscalYear,
+                    d.ParentProject,
+                    d.ProjectID,
+                    MAX(d.ProjectDescription)      AS ProjectDescription,
+                    MAX(d.gldesc)                        AS Gldesc,
+                    MAX(CAST(p.GSNo AS NVARCHAR(20)))    AS GsNo,
+                    MAX(p.SectorName)                    AS SectorName,
+                    ISNULL(SUM(d.Allocation),0)          AS Allocation,
+                    ISNULL(SUM(d.OriginalBudget),0)      AS OriginalBudget,
+                    ISNULL(SUM(d.SupplementaryBudget),0) AS SupplementaryBudget,
+                    ISNULL(SUM(d.ReappPlus),0)           AS ReappPlus,
+                    ISNULL(SUM(d.ReappMinus),0)          AS ReappMinus,
+                    ISNULL(SUM(d.Surrender),0)           AS Surrender,
+                    ISNULL(SUM(d.FinalBudget),0)         AS FinalBudget,
+                    ISNULL(SUM(d.ProgReleases),0)        AS ProgReleases,
+                    ISNULL(SUM(d.InterimDateExp),0)      AS ProgressiveExp,
+                    ISNULL(MAX(pf.ReleaseByPDD),0)       AS ReleaseByPDD
+                FROM budget.devExp d WITH (NOLOCK)
+                LEFT JOIN budget.pdSec p
+                    ON LTRIM(RTRIM(d.ParentProject)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(p.Project)) COLLATE DATABASE_DEFAULT
+                LEFT JOIN (
+                    SELECT GSNo, SUM(ISNULL(ReleaseByPDD,0)) AS ReleaseByPDD
+                    FROM budget.pndFile
+                    GROUP BY GSNo
+                ) pf
+                    ON p.GSNo = pf.GSNo
+                WHERE d.ParentProject LIKE 'PB%'
+                  AND (@FinancialYear IS NULL OR d.FiscalYear = @FinancialYear)
+                  AND (@HasProjects = 0 OR d.ParentProject IN @ParentProjects)
+                  AND (@HasGsNos = 0 OR CAST(p.GSNo AS NVARCHAR(20)) IN @GsNos)
+                  AND (@HasSectors = 0 OR p.SectorName IN @Sectors)
+                  AND (@HasRestrictedDepartments = 0 OR d.MinistryDept IN @RestrictedDepartments)
+                GROUP BY d.FiscalYear, d.ParentProject, d.ProjectID, d.gldesc
+                ORDER BY d.ProjectID;";
+
+            var result = await connection.QueryAsync<DevBudgetReportViewModel>(sql,
+                new
+                {
+                    FinancialYear = financialYear,
+                    HasProjects = hasProjects,
+                    ParentProjects = hasProjects ? parentProjects : new List<string> { string.Empty },
+                    HasGsNos = hasGsNos,
+                    GsNos = hasGsNos ? gsNos : new List<string> { string.Empty },
+                    HasSectors = hasSectors,
+                    Sectors = hasSectors ? sectors : new List<string> { string.Empty },
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
+                commandTimeout: 60);
+            return result.ToList();
+        }
+
+        public async Task<List<LookupItem>> GetParentProjectLookupAsync(int? financialYear = null)
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                SELECT DISTINCT ParentProject AS Value, ParentProject AS Text
+                FROM budget.devExp WITH (NOLOCK)
+                WHERE ParentProject IS NOT NULL AND ParentProject <> ''
+                  AND ParentProject LIKE 'PB%'
+                  AND (@FinancialYear IS NULL OR FiscalYear = @FinancialYear)
+                ORDER BY ParentProject;";
+
+            var result = await connection.QueryAsync<LookupItem>(sql,
+                new { FinancialYear = financialYear },
+                commandTimeout: 60);
+            return result.ToList();
+        }
+
+        public async Task<List<LookupItem>> GetGsNoLookupAsync(int? financialYear = null)
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                SELECT DISTINCT CAST(p.GSNo AS NVARCHAR(20)) AS Value, CAST(p.GSNo AS NVARCHAR(20)) AS Text
+                FROM budget.devExp d WITH (NOLOCK)
+                INNER JOIN budget.pdSec p
+                    ON LTRIM(RTRIM(d.ParentProject)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(p.Project)) COLLATE DATABASE_DEFAULT
+                WHERE p.GSNo IS NOT NULL
+                  AND d.ParentProject LIKE 'PB%'
+                  AND (@FinancialYear IS NULL OR d.FiscalYear = @FinancialYear)
+                ORDER BY Value;";
+
+            var result = await connection.QueryAsync<LookupItem>(sql,
+                new { FinancialYear = financialYear },
+                commandTimeout: 60);
+            return result.ToList();
+        }
+
+        public async Task<List<LookupItem>> GetDevBudgetSectorLookupAsync(int? financialYear = null)
+        {
+            using var connection = CreateConnection();
+            var sql = @"
+                SELECT DISTINCT p.SectorName AS Value, p.SectorName AS Text
+                FROM budget.devExp d WITH (NOLOCK)
+                INNER JOIN budget.pdSec p
+                    ON LTRIM(RTRIM(d.ParentProject)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(p.Project)) COLLATE DATABASE_DEFAULT
+                WHERE p.SectorName IS NOT NULL AND p.SectorName <> ''
+                  AND d.ParentProject LIKE 'PB%'
+                  AND (@FinancialYear IS NULL OR d.FiscalYear = @FinancialYear)
+                ORDER BY Value;";
+
+            var result = await connection.QueryAsync<LookupItem>(sql,
+                new { FinancialYear = financialYear },
+                commandTimeout: 60);
+            return result.ToList();
         }
 
         // Reports
-        public async Task<List<FundWiseReportViewModel>> GetFundWiseReportAsync(int? financialYear = null, string? fundCode = null, string? keyword = null, string? sector = null)
+        public async Task<List<FundWiseReportViewModel>> GetFundWiseReportAsync(int? financialYear = null, string? fundCode = null, string? keyword = null, string? sector = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     FundCode,
@@ -553,6 +1236,10 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(allocated_budget),0)      AS TotalAllocatedBudget,
                     ISNULL(SUM(BudgetGrant),0)           AS TotalBudgetGrant,
                     ISNULL(SUM(Releases),0)              AS TotalReleases,
+                    ISNULL(SUM(SupplementaryGrant),0)    AS TotalSupplementaryGrant,
+                    ISNULL(SUM(ReappropriationPlus),0)   AS TotalReappropriationPlus,
+                    ISNULL(SUM(ReappropriationMinus),0)  AS TotalReappropriationMinus,
+                    ISNULL(SUM(TSSSurrender),0)          AS TotalSurrender,
                     ISNULL(SUM(FinalGrant),0)            AS TotalFinalGrant,
                     ISNULL(SUM(ActualExpenditure),0)     AS TotalActualExpenditure,
                     ISNULL(SUM(FinalGrantBalance),0)     AS TotalBalance
@@ -562,20 +1249,30 @@ namespace FinanceDashboard.Repositories
                   AND (@FundCode IS NULL OR FundCode = @FundCode)
                   AND (@Keyword   IS NULL OR FundCode LIKE '%' + @Keyword + '%'
                                          OR Fund_Des LIKE '%' + @Keyword + '%')
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY FundCode
                 ORDER BY TotalFinalGrant DESC;";
 
             var result = await connection.QueryAsync<FundWiseReportViewModel>(sql,
-                new { FinancialYear = financialYear, Sector = sector, FundCode = fundCode, Keyword = keyword },
+                new
+                {
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    FundCode = fundCode,
+                    Keyword = keyword,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
                 commandTimeout: 60);
             return result.ToList();
         }
 
         public async Task<List<DepartmentWiseReportViewModel>> GetDepartmentWiseReportAsync(
             int? financialYear = null, string? sector = null,
-            string? departmentCode = null, string? fundCode = null)
+            string? departmentCode = null, string? fundCode = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     ISNULL(DepartmentName, MinistryDepartment) AS DepartmentName,
@@ -590,21 +1287,30 @@ namespace FinanceDashboard.Repositories
                   AND (@Sector          IS NULL OR Sector               = @Sector)
                   AND (@DepartmentCode  IS NULL OR MinistryDepartment   = @DepartmentCode)
                   AND (@FundCode        IS NULL OR FundCode             = @FundCode)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY ISNULL(DepartmentName, MinistryDepartment)
                 ORDER BY TotalFinalGrant DESC;";
 
             var result = await connection.QueryAsync<DepartmentWiseReportViewModel>(sql,
-                new { FinancialYear = financialYear, Sector = sector,
-                      DepartmentCode = departmentCode, FundCode = fundCode },
+                new
+                {
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    DepartmentCode = departmentCode,
+                    FundCode = fundCode,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
                 commandTimeout: 60);
             return result.ToList();
         }
 
         // Drill-down: Funds for a specific department
         public async Task<List<FundWiseReportViewModel>> GetDrillFundsAsync(
-            string departmentName, int? financialYear = null, string? sector = null)
+            string departmentName, int? financialYear = null, string? sector = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     FundCode,
@@ -620,19 +1326,28 @@ namespace FinanceDashboard.Repositories
                 WHERE ISNULL(DepartmentName, MinistryDepartment) = @DepartmentName
                   AND (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
                   AND (@Sector IS NULL OR Sector = @Sector)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY FundCode
                 ORDER BY TotalFinalGrant DESC;";
 
             var result = await connection.QueryAsync<FundWiseReportViewModel>(sql,
-                new { DepartmentName = departmentName, FinancialYear = financialYear, Sector = sector },
+                new
+                {
+                    DepartmentName = departmentName,
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
                 commandTimeout: 60);
             return result.ToList();
         }
 
         public async Task<List<CostCenterWiseReportViewModel>> GetDrillCostCentersAsync(
-            string departmentName, string fundCode, int? financialYear = null, string? sector = null)
+            string departmentName, string fundCode, int? financialYear = null, string? sector = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     b.FundCenterCode,
@@ -649,19 +1364,42 @@ namespace FinanceDashboard.Repositories
                   AND b.FundCode = @FundCode
                   AND (@FinancialYear IS NULL OR b.FinancialYear = @FinancialYear)
                   AND (@Sector IS NULL OR b.Sector = @Sector)
+                  AND (@HasRestrictedDepartments = 0 OR b.MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY b.FundCenterCode
                 ORDER BY TotalFinalGrant DESC;";
 
             var result = await connection.QueryAsync<CostCenterWiseReportViewModel>(sql,
-                new { DepartmentName = departmentName, FundCode = fundCode, FinancialYear = financialYear, Sector = sector },
+                new
+                {
+                    DepartmentName = departmentName,
+                    FundCode = fundCode,
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
                 commandTimeout: 60);
             return result.ToList();
         }
 
         public async Task<List<CostCenterWiseReportViewModel>> GetCostCenterWiseReportAsync(
-            int? financialYear = null, string? fundCode = null, string? costCenterCode = null)
+            int? financialYear = null, string? fundCode = null, string? costCenterCode = null,
+            IEnumerable<string>? costCenterCodes = null, IEnumerable<string>? objectCodes = null,
+            string? sector = null, string? departmentCode = null, List<string>? restrictedDepartments = null)
         {
+            // Build dynamic WHERE clauses for multi-value IN filters
+            var ccList  = costCenterCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var objList = objectCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+
+            var cacheKey = $"Report_CostCenterWise_{financialYear}_{fundCode}_{costCenterCode}_{sector}_{departmentCode}_{(hasRestrictedDepartments ? string.Join(",", restrictedDepartments!) : "")}" +
+                $"_{(ccList != null && ccList.Count > 0 ? string.Join(",", ccList) : "")}" +
+                $"_{(objList != null && objList.Count > 0 ? string.Join(",", objList) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<CostCenterWiseReportViewModel>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
+
             var sql = @"
                 SELECT
                     FundCenterCode,
@@ -670,26 +1408,56 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(allocated_budget),0)       AS TotalAllocatedBudget,
                     ISNULL(SUM(BudgetGrant),0)            AS TotalBudgetGrant,
                     ISNULL(SUM(Releases),0)               AS TotalReleases,
+                    ISNULL(SUM(SupplementaryGrant),0)     AS TotalSupplementaryGrant,
+                    ISNULL(SUM(ReappropriationPlus),0)    AS TotalReappropriationPlus,
+                    ISNULL(SUM(ReappropriationMinus),0)   AS TotalReappropriationMinus,
+                    ISNULL(SUM(TSSSurrender),0)           AS TotalSurrender,
                     ISNULL(SUM(FinalGrant),0)             AS TotalFinalGrant,
                     ISNULL(SUM(ActualExpenditure),0)      AS TotalActualExpenditure,
                     ISNULL(SUM(FinalGrantBalance),0)      AS TotalBalance
                 FROM budget.BERData WITH (NOLOCK)
-                WHERE (@FinancialYear   IS NULL OR FinancialYear   = @FinancialYear)
-                  AND (@FundCode        IS NULL OR FundCode        = @FundCode)
-                  AND (@CostCenterCode  IS NULL OR FundCenterCode  = @CostCenterCode)
+                WHERE (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
+                  AND (@FundCode      IS NULL OR FundCode      = @FundCode)
+                  AND (@Sector         IS NULL OR Sector             = @Sector)
+                  AND (@DepartmentCode IS NULL OR MinistryDepartment = @DepartmentCode)
+                  AND (@CostCenterCode IS NULL OR FundCenterCode = @CostCenterCode)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)"
+                + (ccList  != null && ccList.Count  > 0 ? " AND FundCenterCode IN @CcList"    : "")
+                + (objList != null && objList.Count > 0 ? " AND DetailObject   IN @ObjList"   : "") + @"
                 GROUP BY FundCenterCode
                 ORDER BY TotalFinalGrant DESC;";
 
             var result = await connection.QueryAsync<CostCenterWiseReportViewModel>(sql,
-                new { FinancialYear = financialYear, FundCode = fundCode, CostCenterCode = costCenterCode },
+                new
+                {
+                    FinancialYear = financialYear,
+                    FundCode = fundCode,
+                    CostCenterCode = costCenterCode,
+                    Sector = sector,
+                    DepartmentCode = departmentCode,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty },
+                    CcList = ccList ?? new List<string>(),
+                    ObjList = objList ?? new List<string>()
+                },
                 commandTimeout: 60);
-            return result.ToList();
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, ReportCacheDuration);
+            return list;
         }
 
         public async Task<List<CostCenterGLDetailViewModel>> GetCostCenterGLDetailAsync(
-            string costCenterCode, int? financialYear = null, string? fundCode = null)
+            string costCenterCode, int? financialYear = null, string? fundCode = null,
+            IEnumerable<string>? objectCodes = null)
         {
+            var objList = objectCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var cacheKey = $"Report_CostCenterGLDetail_{costCenterCode}_{financialYear}_{fundCode}" +
+                $"_{(objList != null && objList.Count > 0 ? string.Join(",", objList) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<CostCenterGLDetailViewModel>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
+
             var sql = @"
                 SELECT
                     b.DetailObject                           AS GLCode,
@@ -697,25 +1465,34 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(b.allocated_budget), 0)       AS TotalAllocatedBudget,
                     ISNULL(SUM(b.BudgetGrant),      0)       AS TotalBudgetGrant,
                     ISNULL(SUM(b.Releases),         0)       AS TotalReleases,
+                    ISNULL(SUM(b.SupplementaryGrant),0)      AS TotalSupplementaryGrant,
+                    ISNULL(SUM(b.ReappropriationPlus),0)     AS TotalReappropriationPlus,
+                    ISNULL(SUM(b.ReappropriationMinus),0)    AS TotalReappropriationMinus,
+                    ISNULL(SUM(b.TSSSurrender),0)            AS TotalSurrender,
                     ISNULL(SUM(b.FinalGrant),       0)       AS TotalFinalGrant,
                     ISNULL(SUM(b.ActualExpenditure),0)       AS TotalActualExpenditure,
                     ISNULL(SUM(b.FinalGrantBalance),0)       AS TotalBalance
                 FROM budget.BERData b WITH (NOLOCK)
                 WHERE b.FundCenterCode = @CostCenterCode
                   AND (@FinancialYear IS NULL OR b.FinancialYear = @FinancialYear)
-                  AND (@FundCode      IS NULL OR b.FundCode      = @FundCode)
+                  AND (@FundCode      IS NULL OR b.FundCode      = @FundCode)"
+                + (objList != null && objList.Count > 0 ? " AND b.DetailObject IN @ObjList" : "") + @"
                 GROUP BY b.DetailObject
                 ORDER BY b.DetailObject;";
 
             var result = await connection.QueryAsync<CostCenterGLDetailViewModel>(sql,
-                new { CostCenterCode = costCenterCode, FinancialYear = financialYear, FundCode = fundCode },
+                new { CostCenterCode = costCenterCode, FinancialYear = financialYear, FundCode = fundCode,
+                      ObjList = objList ?? new List<string>() },
                 commandTimeout: 60);
-            return result.ToList();
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, ReportCacheDuration);
+            return list;
         }
 
-        public async Task<List<FunctionWiseReportViewModel>> GetFunctionWiseReportAsync(int? financialYear = null, string? keyword = null)
+        public async Task<List<FunctionWiseReportViewModel>> GetFunctionWiseReportAsync(int? financialYear = null, string? keyword = null, List<string>? restrictedDepartments = null)
         {
             using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
             var sql = @"
                 SELECT
                     SubDetailFunction                   AS FunctionCode,
@@ -727,17 +1504,34 @@ namespace FinanceDashboard.Repositories
                 FROM budget.BERData
                 WHERE (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
                   AND (@Keyword IS NULL OR SubDetailFunction LIKE '%' + @Keyword + '%')
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY SubDetailFunction
                 ORDER BY TotalRevisedBudget DESC;";
 
             var result = await connection.QueryAsync<FunctionWiseReportViewModel>(sql,
-                new { FinancialYear = financialYear, Keyword = keyword }, commandTimeout: 60);
+                new
+                {
+                    FinancialYear = financialYear,
+                    Keyword = keyword,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                }, commandTimeout: 60);
             return result.ToList();
         }
 
-        public async Task<List<ObjectWiseReportViewModel>> GetObjectWiseReportAsync(int? financialYear = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null, string? sector = null)
+        public async Task<List<ObjectWiseReportViewModel>> GetObjectWiseReportAsync(int? financialYear = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null, string? sector = null, IEnumerable<string>? costCenterCodes = null, IEnumerable<string>? objectCodes = null)
         {
+            var ccList  = costCenterCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var objList = objectCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+
+            var cacheKey = $"Report_ObjectWise_{financialYear}_{departmentCode}_{fundCode}_{costCenterCode}_{keyword}_{sector}" +
+                $"_{(ccList != null && ccList.Count > 0 ? string.Join(",", ccList) : "")}" +
+                $"_{(objList != null && objList.Count > 0 ? string.Join(",", objList) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<ObjectWiseReportViewModel>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
+
             var sql = @"
                 SELECT
                     DetailObject                             AS DetailObject,
@@ -745,6 +1539,10 @@ namespace FinanceDashboard.Repositories
                     ISNULL(SUM(allocated_budget),0)          AS TotalAllocatedBudget,
                     ISNULL(SUM(BudgetGrant),0)               AS TotalBudgetGrant,
                     ISNULL(SUM(Releases),0)                  AS TotalReleases,
+                    ISNULL(SUM(SupplementaryGrant),0)        AS TotalSupplementaryGrant,
+                    ISNULL(SUM(ReappropriationPlus),0)       AS TotalReappropriationPlus,
+                    ISNULL(SUM(ReappropriationMinus),0)      AS TotalReappropriationMinus,
+                    ISNULL(SUM(TSSSurrender),0)              AS TotalSurrender,
                     ISNULL(SUM(FinalGrant),0)                AS TotalFinalGrant,
                     ISNULL(SUM(ActualExpenditure),0)         AS TotalActualExpenditure,
                     ISNULL(SUM(FinalGrantBalance),0)         AS TotalBalance
@@ -754,29 +1552,52 @@ namespace FinanceDashboard.Repositories
                   AND (@Department      IS NULL OR MinistryDepartment = @Department)
                   AND (@FundCode        IS NULL OR FundCode           = @FundCode)
                   AND (@CostCenterCode  IS NULL OR FundCenterCode     = @CostCenterCode)
-                  AND (@Keyword         IS NULL OR DetailObject LIKE '%' + @Keyword + '%')
+                  AND (@Keyword         IS NULL OR DetailObject LIKE '%' + @Keyword + '%')"
+                + (ccList  != null && ccList.Count  > 0 ? " AND FundCenterCode IN @CcList"  : "")
+                + (objList != null && objList.Count > 0 ? " AND DetailObject   IN @ObjList" : "") + @"
                 GROUP BY DetailObject
                 ORDER BY TotalAllocatedBudget DESC;";
 
             var result = await connection.QueryAsync<ObjectWiseReportViewModel>(sql,
-                new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode, CostCenterCode = costCenterCode, Keyword = keyword }, commandTimeout: 60);
-            return result.ToList();
+                new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode,
+                      CostCenterCode = costCenterCode, Keyword = keyword,
+                      CcList = ccList ?? new List<string>(), ObjList = objList ?? new List<string>() },
+                commandTimeout: 60);
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, ReportCacheDuration);
+            return list;
         }
 
-        public async Task<List<ObjectWiseGroupedViewModel>> GetObjectWiseGroupedAsync(int? financialYear = null, string? sector = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null)
+        public async Task<List<ObjectWiseGroupedViewModel>> GetObjectWiseGroupedAsync(int? financialYear = null, string? sector = null, string? departmentCode = null, string? fundCode = null, string? costCenterCode = null, string? keyword = null, IEnumerable<string>? costCenterCodes = null, IEnumerable<string>? objectCodes = null)
         {
+            var ccList  = costCenterCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var objList = objectCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+
+            var cacheKey = $"Report_ObjectWiseGrouped_{financialYear}_{sector}_{departmentCode}_{fundCode}_{costCenterCode}_{keyword}" +
+                $"_{(ccList != null && ccList.Count > 0 ? string.Join(",", ccList) : "")}" +
+                $"_{(objList != null && objList.Count > 0 ? string.Join(",", objList) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<ObjectWiseGroupedViewModel>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
+
             var sql = @"
                 SELECT
                     ISNULL(Sector, '')                        AS Sector,
                     ISNULL(MinistryDepartment, '')            AS Department,
                     ISNULL(FundCode, '')                      AS FundCode,
                     MAX(ISNULL(Fund_Des, ''))                 AS FundDescription,
+                    ISNULL(FundCenterCode, '')                AS CostCenterCode,
+                    MAX(ISNULL(FundCenterDescription, ''))    AS CostCenterDescription,
                     DetailObject                              AS DetailObject,
                     MAX(GL_Desc)                              AS ObjectDescription,
                     ISNULL(SUM(allocated_budget),0)           AS TotalAllocatedBudget,
                     ISNULL(SUM(BudgetGrant),0)                AS TotalBudgetGrant,
                     ISNULL(SUM(Releases),0)                   AS TotalReleases,
+                    ISNULL(SUM(SupplementaryGrant),0)         AS TotalSupplementaryGrant,
+                    ISNULL(SUM(ReappropriationPlus),0)        AS TotalReappropriationPlus,
+                    ISNULL(SUM(ReappropriationMinus),0)       AS TotalReappropriationMinus,
+                    ISNULL(SUM(TSSSurrender),0)               AS TotalSurrender,
                     ISNULL(SUM(FinalGrant),0)                 AS TotalFinalGrant,
                     ISNULL(SUM(ActualExpenditure),0)          AS TotalActualExpenditure,
                     ISNULL(SUM(FinalGrantBalance),0)          AS TotalBalance
@@ -786,13 +1607,20 @@ namespace FinanceDashboard.Repositories
                   AND (@Department      IS NULL OR MinistryDepartment = @Department)
                   AND (@FundCode        IS NULL OR FundCode           = @FundCode)
                   AND (@CostCenterCode  IS NULL OR FundCenterCode     = @CostCenterCode)
-                  AND (@Keyword         IS NULL OR DetailObject LIKE '%' + @Keyword + '%')
-                GROUP BY Sector, MinistryDepartment, FundCode, DetailObject
-                ORDER BY Sector, MinistryDepartment, FundCode, TotalAllocatedBudget DESC;";
+                  AND (@Keyword         IS NULL OR DetailObject LIKE '%' + @Keyword + '%')"
+                + (ccList  != null && ccList.Count  > 0 ? " AND FundCenterCode IN @CcList"  : "")
+                + (objList != null && objList.Count > 0 ? " AND DetailObject   IN @ObjList" : "") + @"
+                GROUP BY Sector, MinistryDepartment, FundCode, FundCenterCode, DetailObject
+                ORDER BY Sector, MinistryDepartment, FundCode, FundCenterCode, TotalAllocatedBudget DESC;";
 
             var result = await connection.QueryAsync<ObjectWiseGroupedViewModel>(sql,
-                new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode, CostCenterCode = costCenterCode, Keyword = keyword }, commandTimeout: 60);
-            return result.ToList();
+                new { FinancialYear = financialYear, Sector = sector, Department = departmentCode, FundCode = fundCode,
+                      CostCenterCode = costCenterCode, Keyword = keyword,
+                      CcList = ccList ?? new List<string>(), ObjList = objList ?? new List<string>() },
+                commandTimeout: 60);
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, ReportCacheDuration);
+            return list;
         }
 
         public async Task<List<ObjectWiseGLDetailViewModel>> GetObjectWiseGLDetailAsync(string detailObject, int? financialYear = null)
@@ -906,8 +1734,13 @@ namespace FinanceDashboard.Repositories
             return result.ToList();
         }
 
-        public async Task<List<LookupItem>> GetCostCenterLookupAsync(int? financialYear = null, string? fundCode = null)
+        public async Task<List<LookupItem>> GetCostCenterLookupAsync(int? financialYear = null, string? fundCode = null, string? sector = null, string? departmentCode = null, List<string>? restrictedDepartments = null)
         {
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+            var cacheKey = $"Lookup_CostCenter_{financialYear}_{fundCode}_{sector}_{departmentCode}_{(hasRestrictedDepartments ? string.Join(",", restrictedDepartments!) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<LookupItem>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
             var sql = @"
                 SELECT DISTINCT
@@ -918,16 +1751,77 @@ namespace FinanceDashboard.Repositories
                 WHERE FundCenterCode IS NOT NULL AND FundCenterCode <> ''
                   AND (@FinancialYear IS NULL OR FinancialYear = @FinancialYear)
                   AND (@FundCode      IS NULL OR FundCode      = @FundCode)
+                  AND (@Sector         IS NULL OR Sector             = @Sector)
+                  AND (@DepartmentCode IS NULL OR MinistryDepartment = @DepartmentCode)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
                 GROUP BY FundCenterCode
                 ORDER BY FundCenterCode;";
 
             var result = await connection.QueryAsync<LookupItem>(
-                sql, new { FinancialYear = financialYear, FundCode = fundCode });
-            return result.ToList();
+                sql, new
+                {
+                    FinancialYear = financialYear,
+                    FundCode = fundCode,
+                    Sector = sector,
+                    DepartmentCode = departmentCode,
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                });
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
         }
 
-        public async Task<List<LookupItem>> GetDepartmentLookupAsync(int? financialYear = null, string? sector = null)
+        public async Task<List<LookupItem>> GetObjectCodeLookupAsync(int? financialYear = null, string? sector = null,
+            string? departmentCode = null, string? fundCode = null, IEnumerable<string>? costCenterCodes = null, List<string>? restrictedDepartments = null)
         {
+            var ccList = costCenterCodes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+            var cacheKey = $"Lookup_ObjectCode_{financialYear}_{sector}_{departmentCode}_{fundCode}_{(ccList != null && ccList.Count > 0 ? string.Join(",", ccList) : "")}_{(hasRestrictedDepartments ? string.Join(",", restrictedDepartments!) : "")}";
+            if (_cache.TryGetValue(cacheKey, out List<LookupItem>? cached) && cached != null)
+                return cached;
+
+            using var connection = CreateConnection();
+
+            var sql = @"
+                SELECT
+                    DetailObject AS Value,
+                    DetailObject + CASE WHEN MAX(ISNULL(GL_Desc,'')) <> ''
+                                    THEN ' - ' + MAX(GL_Desc) ELSE '' END AS Text
+                FROM budget.BERData WITH (NOLOCK)
+                WHERE DetailObject IS NOT NULL AND DetailObject <> ''
+                  AND (@FinancialYear   IS NULL OR FinancialYear      = @FinancialYear)
+                  AND (@Sector          IS NULL OR Sector             = @Sector)
+                  AND (@DepartmentCode  IS NULL OR MinistryDepartment = @DepartmentCode)
+                  AND (@FundCode        IS NULL OR FundCode           = @FundCode)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)"
+                + (ccList != null && ccList.Count > 0 ? " AND FundCenterCode IN @CcList" : "") + @"
+                GROUP BY DetailObject
+                ORDER BY DetailObject;";
+
+            var result = await connection.QueryAsync<LookupItem>(
+                sql, new
+                {
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    DepartmentCode = departmentCode,
+                    FundCode = fundCode,
+                    CcList = ccList ?? new List<string>(),
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                });
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
+        }
+
+        public async Task<List<LookupItem>> GetDepartmentLookupAsync(int? financialYear = null, string? sector = null, List<string>? sectors = null)
+        {
+            var hasSectors = sectors != null && sectors.Count > 0;
+            var cacheKey = $"Lookup_Department_{financialYear}_{sector}_{(hasSectors ? string.Join(",", sectors!) : string.Empty)}";
+            if (_cache.TryGetValue(cacheKey, out List<LookupItem>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
             var sql = @"
                 SELECT DISTINCT
@@ -938,15 +1832,28 @@ namespace FinanceDashboard.Repositories
                 WHERE B.MinistryDepartment IS NOT NULL AND B.MinistryDepartment <> ''
                   AND (@FinancialYear IS NULL OR B.FinancialYear = @FinancialYear)
                   AND (@Sector IS NULL OR B.Sector = @Sector)
+                  AND (@HasSectors = 0 OR B.Sector IN @Sectors)
                 ORDER BY B.MinistryDepartment;";
 
             var result = await connection.QueryAsync<LookupItem>(
-                sql, new { FinancialYear = financialYear, Sector = sector });
-            return result.ToList();
+                sql, new
+                {
+                    FinancialYear = financialYear,
+                    Sector = sector,
+                    HasSectors = hasSectors,
+                    Sectors = hasSectors ? sectors : new List<string> { string.Empty }
+                });
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
         }
 
         public async Task<List<LookupItem>> GetSectorLookupAsync(int? financialYear = null)
         {
+            var cacheKey = $"Lookup_Sector_{financialYear}";
+            if (_cache.TryGetValue(cacheKey, out List<LookupItem>? cached) && cached != null)
+                return cached;
+
             using var connection = CreateConnection();
             var sql = @"
                 SELECT DISTINCT
@@ -959,7 +1866,9 @@ namespace FinanceDashboard.Repositories
 
             var result = await connection.QueryAsync<LookupItem>(
                 sql, new { FinancialYear = financialYear });
-            return result.ToList();
+            var list = result.ToList();
+            _cache.Set(cacheKey, list, LookupCacheDuration);
+            return list;
         }
 
         // Internal DTO for strongly-typed Dapper mapping
@@ -968,6 +1877,116 @@ namespace FinanceDashboard.Repositories
             public string Sector { get; set; } = string.Empty;
             public string Object_nine_item { get; set; } = string.Empty;
             public string FundCode { get; set; } = string.Empty;
+            public decimal AllocatedBudget { get; set; }
+            public decimal OriginalBudgetReleased { get; set; }
+            public decimal SupplementaryBudget { get; set; }
+            public decimal ReAppPlus { get; set; }
+            public decimal ReAppMinus { get; set; }
+            public decimal BudgetSurrender { get; set; }
+            public decimal FinalBudget { get; set; }
+            public decimal TotalActualExpenditure { get; set; }
+        }
+
+        public async Task<List<NineItemsReportRowViewModel>> GetDeptWiseReportAsync(int? financialYear = null, List<string>? sectors = null, List<string>? departmentCodes = null, List<string>? restrictedDepartments = null)
+        {
+            using var connection = CreateConnection();
+            var hasRestrictedDepartments = restrictedDepartments != null && restrictedDepartments.Count > 0;
+            var hasSectors = sectors != null && sectors.Count > 0;
+            var hasDepartmentCodes = departmentCodes != null && departmentCodes.Count > 0;
+
+            var sql = @"
+                SELECT
+                    ISNULL(DepartmentName, MinistryDepartment) AS DepartmentName,
+                    Sector,
+                    ISNULL(SUM(allocated_budget),   0)  AS AllocatedBudget,
+                    ISNULL(SUM(Releases),           0)  AS OriginalBudgetReleased,
+                    ISNULL(SUM(SupplementaryGrant), 0)  AS SupplementaryBudget,
+                    ISNULL(SUM(ReappropriationPlus),  0) AS ReAppPlus,
+                    ISNULL(SUM(ReappropriationMinus), 0) AS ReAppMinus,
+                    ISNULL(SUM(TSSSurrender),       0)  AS BudgetSurrender,
+                    ISNULL(SUM(FinalGrant),         0)  AS FinalBudget,
+                    ISNULL(SUM(ActualExpenditure),  0)  AS TotalActualExpenditure
+                FROM budget.BERData WITH (NOLOCK)
+                WHERE (@FinancialYear   IS NULL OR FinancialYear = @FinancialYear)
+                  AND (@HasSectors = 0 OR Sector IN @Sectors)
+                  AND (@HasDepartmentCodes = 0 OR MinistryDepartment IN @DepartmentCodes)
+                  AND (@HasRestrictedDepartments = 0 OR MinistryDepartment IN @RestrictedDepartments)
+                  AND ISNULL(DepartmentName, MinistryDepartment) IS NOT NULL
+                  AND ISNULL(DepartmentName, MinistryDepartment) <> ''
+                  AND Sector IS NOT NULL AND Sector <> ''
+                GROUP BY ISNULL(DepartmentName, MinistryDepartment), Sector
+                OPTION (RECOMPILE);";
+
+            var rawList = (await connection.QueryAsync<DeptWiseRaw>(
+                sql,
+                new
+                {
+                    FinancialYear = financialYear,
+                    HasSectors = hasSectors,
+                    Sectors = hasSectors ? sectors : new List<string> { string.Empty },
+                    HasDepartmentCodes = hasDepartmentCodes,
+                    DepartmentCodes = hasDepartmentCodes ? departmentCodes : new List<string> { string.Empty },
+                    HasRestrictedDepartments = hasRestrictedDepartments,
+                    RestrictedDepartments = hasRestrictedDepartments ? restrictedDepartments : new List<string> { string.Empty }
+                },
+                commandTimeout: 120)).ToList();
+
+
+            var rows = new List<NineItemsReportRowViewModel>();
+            var grandTotal = new NineItemsReportRowViewModel { Description = "Grand Total", RowType = "grand_total" };
+
+            foreach (var deptGroup in rawList.GroupBy(r => r.DepartmentName).OrderBy(g => g.Key))
+            {
+                var deptRow = new NineItemsReportRowViewModel { Description = deptGroup.Key, RowType = "dept" };
+                foreach (var r in deptGroup)
+                {
+                    deptRow.AllocatedBudget        += r.AllocatedBudget;
+                    deptRow.OriginalBudgetReleased += r.OriginalBudgetReleased;
+                    deptRow.SupplementaryBudget     += r.SupplementaryBudget;
+                    deptRow.ReAppPlus               += r.ReAppPlus;
+                    deptRow.ReAppMinus              += r.ReAppMinus;
+                    deptRow.BudgetSurrender          += r.BudgetSurrender;
+                    deptRow.FinalBudget              += r.FinalBudget;
+                    deptRow.TotalActualExpenditure   += r.TotalActualExpenditure;
+                }
+                rows.Add(deptRow);
+
+                grandTotal.AllocatedBudget        += deptRow.AllocatedBudget;
+                grandTotal.OriginalBudgetReleased += deptRow.OriginalBudgetReleased;
+                grandTotal.SupplementaryBudget     += deptRow.SupplementaryBudget;
+                grandTotal.ReAppPlus               += deptRow.ReAppPlus;
+                grandTotal.ReAppMinus              += deptRow.ReAppMinus;
+                grandTotal.BudgetSurrender          += deptRow.BudgetSurrender;
+                grandTotal.FinalBudget              += deptRow.FinalBudget;
+                grandTotal.TotalActualExpenditure   += deptRow.TotalActualExpenditure;
+
+                foreach (var r in deptGroup.OrderBy(x => x.Sector))
+                {
+                    rows.Add(new NineItemsReportRowViewModel
+                    {
+                        Description             = r.Sector,
+                        RowType                  = "sector",
+                        AllocatedBudget          = r.AllocatedBudget,
+                        OriginalBudgetReleased   = r.OriginalBudgetReleased,
+                        SupplementaryBudget      = r.SupplementaryBudget,
+                        ReAppPlus                = r.ReAppPlus,
+                        ReAppMinus               = r.ReAppMinus,
+                        BudgetSurrender          = r.BudgetSurrender,
+                        FinalBudget              = r.FinalBudget,
+                        TotalActualExpenditure   = r.TotalActualExpenditure
+                    });
+                }
+            }
+
+            rows.Add(grandTotal);
+            return rows;
+        }
+
+        // Internal DTO for strongly-typed Dapper mapping
+        private class DeptWiseRaw
+        {
+            public string DepartmentName { get; set; } = string.Empty;
+            public string Sector { get; set; } = string.Empty;
             public decimal AllocatedBudget { get; set; }
             public decimal OriginalBudgetReleased { get; set; }
             public decimal SupplementaryBudget { get; set; }
@@ -1234,13 +2253,34 @@ namespace FinanceDashboard.Repositories
         {
             using var connection = CreateConnection();
             await connection.OpenAsync();
-            using var transaction = connection.BeginTransaction();
-            try
             {
+                // TRUNCATE is minimally logged and instant (unlike DELETE, which logs every
+                // row individually). Non-clustered indexes are DISABLEd before the bulk insert
+                // and REBUILT once afterward — maintaining 6 indexes row-by-row during a
+                // ~290k-row insert requires large sort memory grants, which can stall for a
+                // long time (RESOURCE_SEMAPHORE waits) on machines/hosts under memory pressure.
+                // Disable + single rebuild avoids that entirely and is dramatically faster.
+                //
+                // NO explicit transaction: TRUNCATE takes a SCH-M lock on the table. Wrapping
+                // everything in one transaction held that lock for the entire insert + rebuild,
+                // so if ANY other connection was reading BERData (an open dashboard page),
+                // the TRUNCATE waited indefinitely and the UI froze at 2%. Each statement now
+                // auto-commits, and LOCK_TIMEOUT makes a blocked TRUNCATE fail fast with a
+                // clear error instead of hanging. Rerunning Step 1 fully rebuilds the table,
+                // so a mid-way failure carries no consistency risk.
                 var sql = @"
-                DELETE FROM budget.BERData;
+                SET LOCK_TIMEOUT 30000;
 
-                INSERT INTO budget.BERData
+                TRUNCATE TABLE budget.BERData;
+
+                ALTER INDEX IX_BERData_FinancialYear      ON budget.BERData DISABLE;
+                ALTER INDEX IX_BERData_FundCode            ON budget.BERData DISABLE;
+                ALTER INDEX IX_BERData_FundCenterCode      ON budget.BERData DISABLE;
+                ALTER INDEX IX_BERData_MinistryDepartment  ON budget.BERData DISABLE;
+                ALTER INDEX IX_BERData_DetailObject        ON budget.BERData DISABLE;
+                ALTER INDEX IX_BERData_Sector_NineItem     ON budget.BERData DISABLE;
+
+                INSERT INTO budget.BERData WITH (TABLOCK)
                 (
                     FinancialYear, FundCode, FundCenterCode, FundCenterDescription,
                     MinistryDepartment, AttachedDepartment, ProfitCenter, SubDetailFunction,
@@ -1260,13 +2300,19 @@ namespace FinanceDashboard.Repositories
                     ActualExpenditure, FinalGrantBalance
                 FROM budget.BerSapData;
 
-                SELECT @@ROWCOUNT;";
+                ALTER INDEX IX_BERData_FinancialYear      ON budget.BERData REBUILD;
+                ALTER INDEX IX_BERData_FundCode            ON budget.BERData REBUILD;
+                ALTER INDEX IX_BERData_FundCenterCode      ON budget.BERData REBUILD;
+                ALTER INDEX IX_BERData_MinistryDepartment  ON budget.BERData REBUILD;
+                ALTER INDEX IX_BERData_DetailObject        ON budget.BERData REBUILD;
+                ALTER INDEX IX_BERData_Sector_NineItem     ON budget.BERData REBUILD;
 
-                var rows = await connection.ExecuteScalarAsync<int>(sql, param: null, transaction: transaction, commandTimeout: 600);
-                transaction.Commit();
+                SELECT COUNT(*) FROM budget.BERData;";
+
+
+                var rows = await connection.ExecuteScalarAsync<int>(sql, commandTimeout: 600);
                 return rows;
             }
-            catch { transaction.Rollback(); throw; }
         }
 
         public async Task UpdateBERDataStep2Async()
@@ -1388,6 +2434,68 @@ namespace FinanceDashboard.Repositories
                 SET T.DepartmentName = D.DepartmentName
                 FROM budget.BERData T
                 INNER JOIN budget.Departments D ON T.MinistryDepartment = D.DepartmentCode;";
+
+                await connection.ExecuteAsync(sql, param: null, transaction: transaction, commandTimeout: 300);
+                transaction.Commit();
+            }
+            catch { transaction.Rollback(); throw; }
+        }
+
+        public async Task UpdateBERDataStep7Async()
+        {
+            using var connection = CreateConnection();
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                var sql = @"
+                UPDATE [budget].[BERData]
+                SET [object_nine_item] =
+                CASE
+                    -- Highest Priority
+                    WHEN [FundCenterCode] IN (
+                        'LO005581','LO005580','AK004118','AK004129','AK004131',
+                        'AK005579','BH005579','BK005579','BR004106','BR005579',
+                        'CH005579','CT005579','DG005579','FD005579','GA004239',
+                        'GA005579','GT004107','GT005579','HF005579','JG004095',
+                        'JG005579','JM004120','JM005579','KB005579','KS005579',
+                        'KW005579','LN005579','LO004895','LO004902','LO005512',
+                        'LO005579','LY005579','MB005579','MH005579','MI005579',
+                        'MN004467','MN005579','NK005579','NL005579','OK004109',
+                        'OK005579','PK005579','RI004424','RI004425','RI004426',
+                        'RI004427','RI004428','RI005579','RN005579','RP005579',
+                        'SA005579','SG004038','SG005579','SL005579','ST004094',
+                        'ST005579','TS005579','VR005579'
+                    ) THEN '3.PFC'
+
+                    WHEN [FundCode] = 'PC21260' THEN '2.Pension'
+
+                    WHEN [FundCenterCode] IN (
+                        'BR004963',
+                        'LO004891',
+                        'LO005270',
+                        'LO005291',
+                        'LO005292',
+                        'LO005652',
+                        'LO005797',
+                        'LO005902',
+                        'LO005916',
+                        'LO005992',
+                        'LO001013'
+                    ) THEN '4.Subsidies'
+
+                    WHEN [DetailObject] LIKE 'A01%' THEN '1.Salary'
+
+                    WHEN [DetailObject] LIKE 'A03%' THEN '5.Operating Expense'
+
+                    WHEN [DetailObject] LIKE 'A07%' THEN '6.Interest Payment'
+
+                    WHEN [DetailObject] LIKE 'A09%' THEN '7.Physical Assets'
+
+                    WHEN [DetailObject] LIKE 'A13%' THEN '8.M&R'
+
+                    ELSE '9.Remaining'
+                END;";
 
                 await connection.ExecuteAsync(sql, param: null, transaction: transaction, commandTimeout: 300);
                 transaction.Commit();

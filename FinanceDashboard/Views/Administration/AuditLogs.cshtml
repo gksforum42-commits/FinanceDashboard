@@ -92,32 +92,42 @@
         const pageSize = 50;
 
         $(document).ready(function () {
-            // Set default dates
-            const today = new Date().toISOString().split('T')[0];
-            const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            $('#filterFromDate').val(lastMonth);
-            $('#filterToDate').val(today);
+            // Set default dates (last 30 days)
+            const today = new Date();
+            const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+            // Format as YYYY-MM-DD
+            const toISODateString = (date) => date.toISOString().split('T')[0];
+
+            $('#filterFromDate').val(toISODateString(lastMonth));
+            $('#filterToDate').val(toISODateString(today));
+
+            // Initial load with date filters already set
             loadLogs(1);
         });
 
         function loadLogs(page) {
             currentPage = page;
-            const action = $('#filterAction').val() || null;
-            const fromDate = $('#filterFromDate').val() || null;
-            const toDate = $('#filterToDate').val() || null;
+            const auditAction = $('#filterAction').val();
+            const fromDate = $('#filterFromDate').val();
+            const toDate = $('#filterToDate').val();
 
-            ajaxGet('/Administration/GetAuditLogs', {
-                action: action,
+            const params = {
+                auditAction: auditAction,
                 fromDate: fromDate,
                 toDate: toDate,
                 page: page,
                 pageSize: pageSize
-            }, function (r) {
+            };
+
+            ajaxGet('/Administration/GetAuditLogs', params, function (r) {
                 if (r.success) {
                     renderTable(r.data);
                     renderPagination(r.totalRecords, r.totalPages);
-                    updateStats(r.data);
+                    updateStats(r.data, r.totalRecords);
+                } else {
+                    console.error('Error loading audit logs:', r.message);
+                    $('#auditTableBody').html('<tr><td colspan="8" class="text-center text-danger py-4">Error: ' + (r.message || 'Unknown error') + '</td></tr>');
                 }
             });
         }
@@ -175,8 +185,8 @@
                 '<a class="page-link" href="javascript:void(0)" onclick="loadLogs(' + (currentPage + 1) + ')">&raquo;</a></li>');
         }
 
-        function updateStats(data) {
-            $('#statTotal').text(data.length > 0 ? data[0].id ? 'Many' : '0' : '0');
+        function updateStats(data, totalRecords) {
+            $('#statTotal').text(formatNumber(totalRecords || 0));
             const today = new Date().toDateString();
             const todayCount = data.filter(d => new Date(d.actionDate).toDateString() === today).length;
             $('#statToday').text(formatNumber(todayCount));

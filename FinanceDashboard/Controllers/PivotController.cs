@@ -1,4 +1,5 @@
 using FinanceDashboard.Interfaces;
+using FinanceDashboard.Services;
 using FinanceDashboard.ViewModels.Pivot;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace FinanceDashboard.Controllers
 {
-    [Authorize]
+    [Authorize(Policy = "NotSneDepartmentUser")]
     public class PivotController : Controller
     {
         private readonly IPivotRepository _repo;
@@ -51,6 +52,15 @@ namespace FinanceDashboard.Controllers
                 if (request.ValueFields == null || !request.ValueFields.Any())
                     return Json(new { success = false, message = "At least one value field is required." });
 
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                {
+                    request.Filters ??= new Dictionary<string, List<string>>();
+                    request.Filters["MinistryDepartment"] = restrictedDepartments;
+                    if (request.DrillFilters != null && request.DrillFilters.ContainsKey("MinistryDepartment"))
+                        request.DrillFilters["MinistryDepartment"] = restrictedDepartments[0];
+                }
+
                 var (rawRows, totalGroups) = await _repo.GetPivotRawDataAsync(request, ct);
                 var pivotResult = _service.BuildPivotResult(rawRows, request, totalGroups);
 
@@ -89,6 +99,15 @@ namespace FinanceDashboard.Controllers
                         if (!string.IsNullOrWhiteSpace(kv.Value))
                             parentDict[kv.Key] = kv.Value.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
 
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                {
+                    if (string.Equals(column, "MinistryDepartment", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(column, "DepartmentName", StringComparison.OrdinalIgnoreCase))
+                        return Json(new { success = true, data = new List<PivotFilterLookupViewModel>() });
+                    parentDict["MinistryDepartment"] = restrictedDepartments;
+                }
+
                 // Cache key includes column + sorted parent filters + search
                 var cacheKey = $"pivot_filter_{column}_{string.Join("_", parentDict.OrderBy(k => k.Key).Select(k => k.Key + "=" + string.Join(",", k.Value)))}_{search}";
 
@@ -118,10 +137,15 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                var globalFilters = request.GlobalFilters ?? new Dictionary<string, List<string>>();
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                    globalFilters["MinistryDepartment"] = restrictedDepartments;
+
                 var result = await _repo.GetDrillDownDataAsync(
                     request.DimensionFilters ?? new Dictionary<string, string>(),
                     request.ValueFields ?? new List<string>(),
-                    request.GlobalFilters ?? new Dictionary<string, List<string>>(),
+                    globalFilters,
                     request.Page, request.PageSize, ct);
 
                 return Json(new { success = true, data = result });
@@ -146,6 +170,12 @@ namespace FinanceDashboard.Controllers
             {
                 request.PageSize = 100_000; // Export all
                 request.Page = 1;
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                {
+                    request.Filters ??= new Dictionary<string, List<string>>();
+                    request.Filters["MinistryDepartment"] = restrictedDepartments;
+                }
                 var (rawRows, totalGroups) = await _repo.GetPivotRawDataAsync(request, ct);
                 var pivotResult = _service.BuildPivotResult(rawRows, request, totalGroups);
                 var bytes = await _exportService.ExportExcelAsync(pivotResult, request);
@@ -173,6 +203,12 @@ namespace FinanceDashboard.Controllers
             {
                 request.PageSize = 100_000;
                 request.Page = 1;
+                var restrictedDepartments = User.GetRestrictedDepartments();
+                if (restrictedDepartments != null && restrictedDepartments.Count > 0)
+                {
+                    request.Filters ??= new Dictionary<string, List<string>>();
+                    request.Filters["MinistryDepartment"] = restrictedDepartments;
+                }
                 var (rawRows, totalGroups) = await _repo.GetPivotRawDataAsync(request, ct);
                 var pivotResult = _service.BuildPivotResult(rawRows, request, totalGroups);
                 var bytes = await _exportService.ExportCsvAsync(pivotResult, request);

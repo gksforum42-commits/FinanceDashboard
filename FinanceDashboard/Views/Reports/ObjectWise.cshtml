@@ -57,14 +57,12 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Cost Center</label>
-                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:240px;">
-                    <option value="">All Cost Centers</option>
+                <select id="filterCC" class="form-select form-select-sm select2" style="min-width:240px;" multiple>
                 </select>
             </div>
             <div class="form-group">
                 <label class="form-label">Object Code</label>
-                <select id="filterObj" class="form-select form-select-sm select2" style="min-width:200px;" disabled>
-                    <option value="">All Object Codes</option>
+                <select id="filterObj" class="form-select form-select-sm select2" style="min-width:200px;" multiple>
                 </select>
             </div>
             <div class="filter-actions">
@@ -74,6 +72,29 @@
                 <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">
                     <i class="bi bi-x-circle me-1"></i>Clear
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grouping Level Checkboxes -->
+    <div class="card border-0 shadow-sm mb-3 no-print" id="groupingStrip">
+        <div class="card-body py-2 px-3 d-flex flex-wrap align-items-center gap-3">
+            <span class="fw-semibold text-muted me-1" style="font-size:.82rem;"><i class="bi bi-layers me-1"></i>Group report by:</span>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="chkSector">
+                <label class="form-check-label fw-semibold" for="chkSector" style="color:#00467f;"><i class="bi bi-grid-3x3-gap me-1"></i>Sector</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="chkDept">
+                <label class="form-check-label fw-semibold" for="chkDept" style="color:#0e63a0;"><i class="bi bi-building me-1"></i>Department</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="chkFund">
+                <label class="form-check-label fw-semibold" for="chkFund" style="color:#2980b9;"><i class="bi bi-cash-stack me-1"></i>Fund</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="chkCC">
+                <label class="form-check-label fw-semibold" for="chkCC" style="color:#1e74ad;"><i class="bi bi-diagram-3 me-1"></i>Cost Center</label>
             </div>
         </div>
     </div>
@@ -106,10 +127,15 @@
                 <tr>
                     <th>GL Code</th>
                     <th>GL Description</th>
-                    <th class="text-end">Alloc Budget</th>
+                    <th class="text-end">Allocation</th>
                     <th class="text-end">Budget Grant</th>
                     <th class="text-end">Releases</th>
                     <th class="text-end">% Release</th>
+                    <th class="text-end">Supplementary</th>
+                    <th class="text-end">Reapp (+)</th>
+                    <th class="text-end">Reapp (-)</th>
+                    <th class="text-end">Surrender</th>
+                    <th class="text-end">Final Budget</th>
                     <th class="text-end">Expenditure</th>
                     <th class="text-end">% Util</th>
                     <th class="text-end">Balance</th>
@@ -167,16 +193,17 @@
             r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
         });
 
-        $('#filterSector').select2({ theme: 'bootstrap-5', placeholder: 'All Sectors',      allowClear: true, width: '100%' });
-        $('#filterDept').select2(  { theme: 'bootstrap-5', placeholder: 'All Departments',  allowClear: true, width: '100%' });
-        $('#filterFund').select2(  { theme: 'bootstrap-5', placeholder: 'All Funds',         allowClear: true, width: '100%' });
-        $('#filterCC').select2(    { theme: 'bootstrap-5', placeholder: 'All Cost Centers',  allowClear: true, width: '100%' });
-        $('#filterObj').select2(   { theme: 'bootstrap-5', placeholder: 'All Object Codes',  allowClear: true, width: '100%' });
+        $('#filterSector').select2({ theme: 'bootstrap-5', placeholder: 'All Sectors',           allowClear: true, width: '100%' });
+        $('#filterDept').select2(  { theme: 'bootstrap-5', placeholder: 'All Departments',       allowClear: true, width: '100%' });
+        $('#filterFund').select2(  { theme: 'bootstrap-5', placeholder: 'All Funds',             allowClear: true, width: '100%' });
+        $('#filterCC').select2(    { theme: 'bootstrap-5', placeholder: 'All Cost Centers (multi)', allowClear: true, width: '100%' });
+        $('#filterObj').select2(   { theme: 'bootstrap-5', placeholder: 'All Object Codes',   allowClear: true, width: '100%' });
 
         loadSectorDropdown(null);
         loadDeptDropdown(null, null);
         loadFundDropdown(null, null, null);
         loadCCDropdown(null, null);
+        loadObjDropdown();
 
         $('#filterYear').on('change', function () {
             const yr = $(this).val() || null;
@@ -184,41 +211,42 @@
             loadDeptDropdown(yr, null);
             loadFundDropdown(yr, null, null);
             loadCCDropdown(yr, null);
-            resetObjDropdown();
+            loadObjDropdown();
             loadData();
         });
         $('#filterSector').on('change', function () {
             const yr = $('#filterYear').val() || null;
             const s  = $(this).val() || null;
-            $('#filterDept').val('').trigger('change.select2');
-            $('#filterFund').val('').trigger('change.select2');
-            $('#filterCC').val('').trigger('change.select2');
+            if ($('#filterDept').hasClass('select2-hidden-accessible')) $('#filterDept').val('').trigger('change.select2');
+            if ($('#filterFund').hasClass('select2-hidden-accessible')) $('#filterFund').val('').trigger('change.select2');
+            if ($('#filterCC').hasClass('select2-hidden-accessible'))   $('#filterCC').val(null).trigger('change.select2');
             loadDeptDropdown(yr, s);
             loadFundDropdown(yr, null, s);
             loadCCDropdown(yr, null);
-            resetObjDropdown();
+            loadObjDropdown();
+            loadData();
         });
         $('#filterDept').on('change', function () {
             const yr = $('#filterYear').val() || null;
             const s  = $('#filterSector').val() || null;
             const d  = $(this).val() || null;
-            $('#filterFund').val('').trigger('change.select2');
-            $('#filterCC').val('').trigger('change.select2');
+            if ($('#filterFund').hasClass('select2-hidden-accessible')) $('#filterFund').val('').trigger('change.select2');
+            if ($('#filterCC').hasClass('select2-hidden-accessible'))   $('#filterCC').val(null).trigger('change.select2');
             loadFundDropdown(yr, d, s);
             loadCCDropdown(yr, null);
-            resetObjDropdown();
+            loadObjDropdown();
             loadData();
         });
         $('#filterFund').on('change', function () {
             const yr = $('#filterYear').val() || null;
             const fc = $(this).val() || null;
-            $('#filterCC').val('').trigger('change.select2');
+            if ($('#filterCC').hasClass('select2-hidden-accessible')) $('#filterCC').val(null).trigger('change.select2');
             loadCCDropdown(yr, fc);
-            resetObjDropdown();
+            loadObjDropdown();
             loadData();
         });
         $('#filterCC').on('change', function () {
-            resetObjDropdown();
+            loadObjDropdown();
             loadData();
         });
         $('#filterObj').on('change', function () { loadData(); });
@@ -280,53 +308,73 @@
             const sel = $('#filterCC');
             const cur = sel.val();
             if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
-            sel.empty().append('<option value="">All Cost Centers</option>');
-            r.data.forEach(i => sel.append('<option value="' + i.value + '">' + i.text + '</option>'));
-            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Cost Centers', allowClear: true, width: '100%' });
-            if (cur) sel.val(cur).trigger('change.select2');
+            sel.empty();
+            r.data.forEach(i => sel.append('<option value="' + esc(i.value) + '">' + esc(i.text) + '</option>'));
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Cost Centers (multi)', allowClear: true, width: '100%' });
+            if (cur && cur.length) sel.val(cur).trigger('change.select2');
         });
     }
 
-    function resetObjDropdown() {
-        const sel = $('#filterObj');
-        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
-        sel.val('').empty().append('<option value="">All Object Codes</option>');
-        sel.prop('disabled', true)
-           .select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes', allowClear: true, width: '100%' });
-    }
-
-    function populateObjDropdown(data) {
-        const sel = $('#filterObj');
-        const cur = sel.val();
-        if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
-        sel.empty().append('<option value="">All Object Codes</option>');
-        data.forEach(function (row) {
-            const label = row.detailObject + (row.objectDescription ? ' – ' + row.objectDescription : '');
-            sel.append('<option value="' + esc(row.detailObject) + '">' + label + '</option>');
-        });
-        sel.prop('disabled', data.length === 0);
-        sel.select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes', allowClear: true, width: '100%' });
-        if (cur && data.some(r => r.detailObject === cur)) sel.val(cur).trigger('change.select2');
-    }
-
-    function loadData() {
+    function loadObjDropdown() {
         const year   = $('#filterYear').val()   || null;
         const sector = $('#filterSector').val() || null;
         const dept   = $('#filterDept').val()   || null;
         const fund   = $('#filterFund').val()   || null;
-        const cc     = $('#filterCC').val()     || null;
-        const obj    = $('#filterObj').val()    || null;
+        const ccVals = $('#filterCC').val()     || [];
+
+        const params = {};
+        if (year)   params.financialYear   = year;
+        if (sector) params.sector          = sector;
+        if (dept)   params.departmentCode  = dept;
+        if (fund)   params.fundCode        = fund;
+
+        let url = '/Reports/GetObjectCodeLookupByFilters?';
+        Object.keys(params).forEach(function (k) { url += k + '=' + encodeURIComponent(params[k]) + '&'; });
+        ccVals.forEach(function (v) { url += 'costCenterCodes=' + encodeURIComponent(v) + '&'; });
+
+        ajaxGet(url, {}, function (r) {
+            if (!r.success) return;
+            const sel = $('#filterObj');
+            const cur = sel.val() || [];
+            if (sel.hasClass('select2-hidden-accessible')) sel.select2('destroy');
+            sel.empty();
+            r.data.forEach(function (item) {
+                sel.append('<option value="' + esc(item.value) + '">' + esc(item.text) + '</option>');
+            });
+            sel.select2({ theme: 'bootstrap-5', placeholder: 'All Object Codes', allowClear: true, width: '100%' });
+            const validVals = {};
+            r.data.forEach(function (item) { validVals[item.value] = true; });
+            const validCur = cur.filter(v => validVals[v]);
+            if (validCur.length) sel.val(validCur).trigger('change.select2');
+        }, function () { /* ignore */ });
+    }
+
+    function loadData() {
+        const year    = $('#filterYear').val()   || null;
+        const sector  = $('#filterSector').val() || null;
+        const dept    = $('#filterDept').val()   || null;
+        const fund    = $('#filterFund').val()   || null;
+        const ccVals  = $('#filterCC').val()     || [];
+        const objVals = $('#filterObj').val()    || [];
+
         showTableLoading();
-        ajaxGet('/Reports/GetObjectWiseData',
-            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj },
+
+        // Build URL manually to pass arrays as repeated params
+        let url = '/Reports/GetObjectWiseData?';
+        if (year)   url += 'financialYear='  + encodeURIComponent(year)   + '&';
+        if (sector) url += 'sector='         + encodeURIComponent(sector) + '&';
+        if (dept)   url += 'departmentCode=' + encodeURIComponent(dept)   + '&';
+        if (fund)   url += 'fundCode='       + encodeURIComponent(fund)   + '&';
+        ccVals.forEach(function (v)  { url += 'costCenterCodes=' + encodeURIComponent(v) + '&'; });
+        objVals.forEach(function (v) { url += 'objectCodes='     + encodeURIComponent(v) + '&'; });
+
+        ajaxGet(url, {},
             function (r) {
                 hideTableLoading();
                 if (r.success) {
-                    // Populate object dropdown only when no object is pre-selected
-                    if (!obj) populateObjDropdown(r.data);
                     renderTable(r.data);
                     updateSummary(r.data);
-                    updatePrintSubtitle(year, sector, dept, fund, cc, obj);
+                    updatePrintSubtitle(year, sector, dept, fund, ccVals, objVals);
                 } else {
                     showToast('error', r.message || 'Failed to load data.');
                 }
@@ -346,6 +394,7 @@
         tfoot.empty();
 
         let totAllocated = 0, totGrant = 0, totReleases = 0, totExp = 0, totBalance = 0;
+        let totSupp = 0, totReappPlus = 0, totReappMinus = 0, totSurrender = 0, totFinalGrant = 0;
         window._objPdfRows = [];
 
         data.forEach(function (row) {
@@ -354,17 +403,24 @@
             const relCls  = utilClass(relPct);
             const utilCls = utilClass(utilPct);
 
-            totAllocated += row.totalAllocatedBudget;
-            totGrant     += row.totalBudgetGrant;
-            totReleases  += row.totalReleases;
-            totExp       += row.totalActualExpenditure;
-            totBalance   += row.totalBalance;
+            totAllocated  += row.totalAllocatedBudget;
+            totGrant      += row.totalBudgetGrant;
+            totReleases   += row.totalReleases;
+            totSupp       += row.totalSupplementaryGrant;
+            totReappPlus  += row.totalReappropriationPlus;
+            totReappMinus += row.totalReappropriationMinus;
+            totSurrender  += row.totalSurrender;
+            totFinalGrant += row.totalFinalGrant;
+            totExp        += row.totalActualExpenditure;
+            totBalance    += row.totalBalance;
 
             window._objPdfRows.push([
                 row.detailObject,
                 row.objectDescription || '—',
                 fmtC(row.totalAllocatedBudget), fmtC(row.totalBudgetGrant),
                 fmtC(row.totalReleases), relPct + '%',
+                fmtC(row.totalSupplementaryGrant), fmtC(row.totalReappropriationPlus),
+                fmtC(row.totalReappropriationMinus), fmtC(row.totalSurrender), fmtC(row.totalFinalGrant),
                 fmtC(row.totalActualExpenditure), utilPct + '%',
                 fmtC(row.totalBalance)
             ]);
@@ -379,6 +435,11 @@
                 '<td class="text-end">' + fmtC(row.totalBudgetGrant)         + '</td>' +
                 '<td class="text-end">' + fmtC(row.totalReleases)            + '</td>' +
                 '<td class="text-end ' + relCls  + '">' + relPct  + '%</td>' +
+                '<td class="text-end">' + fmtC(row.totalSupplementaryGrant)  + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationPlus) + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalReappropriationMinus)+ '</td>' +
+                '<td class="text-end">' + fmtC(row.totalSurrender)           + '</td>' +
+                '<td class="text-end">' + fmtC(row.totalFinalGrant)          + '</td>' +
                 '<td class="text-end text-primary">' + fmtC(row.totalActualExpenditure) + '</td>' +
                 '<td class="text-end ' + utilCls + '">' + utilPct + '%</td>' +
                 '<td class="text-end">' + fmtC(row.totalBalance)             + '</td>' +
@@ -390,7 +451,8 @@
         const totalUtilPct = totGrant     > 0 ? (totExp      / totGrant     * 100).toFixed(1) : '0.0';
 
         window._objPdfRows.push(['Total', '', fmtC(totAllocated), fmtC(totGrant), fmtC(totReleases),
-            totalRelPct + '%', fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)]);
+            totalRelPct + '%', fmtC(totSupp), fmtC(totReappPlus), fmtC(totReappMinus), fmtC(totSurrender),
+            fmtC(totFinalGrant), fmtC(totExp), totalUtilPct + '%', fmtC(totBalance)]);
 
         tfoot.append(
             '<tr class="table-secondary">' +
@@ -399,6 +461,11 @@
             '<td class="text-end"><strong>' + fmtC(totGrant)     + '</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totReleases)  + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalRelPct)  + '"><strong>' + totalRelPct  + '%</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSupp)        + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappPlus)   + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totReappMinus)  + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totSurrender)   + '</strong></td>' +
+            '<td class="text-end"><strong>' + fmtC(totFinalGrant)  + '</strong></td>' +
             '<td class="text-end text-primary"><strong>' + fmtC(totExp)    + '</strong></td>' +
             '<td class="text-end ' + utilClass(totalUtilPct) + '"><strong>' + totalUtilPct + '%</strong></td>' +
             '<td class="text-end"><strong>' + fmtC(totBalance)   + '</strong></td>' +
@@ -431,13 +498,15 @@
         $('#summaryBar').css('display', '');
     }
 
-    function updatePrintSubtitle(year, sector, dept, fund, cc, obj) {
+    function updatePrintSubtitle(year, sector, dept, fund, ccVals, objVals) {
         const yearLbl   = year   || 'All Years';
         const sectorLbl = $('#filterSector').find('option:selected').text() || 'All Sectors';
         const deptLbl   = $('#filterDept').find('option:selected').text()   || 'All Departments';
         const fundLbl   = $('#filterFund').find('option:selected').text()   || 'All Funds';
-        const ccLbl     = $('#filterCC').find('option:selected').text()     || 'All Cost Centers';
-        const objLbl    = obj ? ($('#filterObj').find('option:selected').text() || obj) : 'All Objects';
+        const ccArr  = Array.isArray(ccVals)  ? ccVals  : (ccVals  ? [ccVals]  : []);
+        const objArr = Array.isArray(objVals) ? objVals : (objVals ? [objVals] : []);
+        const ccLbl  = ccArr.length  > 0 ? ccArr.map(v  => $('#filterCC option[value="' + v + '"]').text()  || v).join(', ')  : 'All Cost Centers';
+        const objLbl = objArr.length > 0 ? objArr.map(v => $('#filterObj option[value="' + v + '"]').text() || v).join(', ') : 'All Objects';
         $('#printSubtitle').text('Year: ' + yearLbl + ' | Sector: ' + sectorLbl + ' | Dept: ' + deptLbl +
             ' | Fund: ' + fundLbl + ' | CC: ' + ccLbl + ' | Object: ' + objLbl);
     }
@@ -447,19 +516,31 @@
         const sector  = $('#filterSector').val() || null;
         const dept    = $('#filterDept').val()   || null;
         const fund    = $('#filterFund').val()   || null;
-        const cc      = $('#filterCC').val()     || null;
-        const obj     = $('#filterObj').val()    || null;
+        const ccVals  = $('#filterCC').val()     || [];
+        const objVals = $('#filterObj').val()    || [];
 
-        ajaxGet('/Reports/GetObjectWiseGroupedData',
-            { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj },
+        // Build URL with repeated array params
+        let url = '/Reports/GetObjectWiseGroupedData?';
+        if (year)   url += 'financialYear='  + encodeURIComponent(year)   + '&';
+        if (sector) url += 'sector='         + encodeURIComponent(sector) + '&';
+        if (dept)   url += 'departmentCode=' + encodeURIComponent(dept)   + '&';
+        if (fund)   url += 'fundCode='       + encodeURIComponent(fund)   + '&';
+        ccVals.forEach(function (v)  { url += 'costCenterCodes=' + encodeURIComponent(v) + '&'; });
+        objVals.forEach(function (v) { url += 'objectCodes='     + encodeURIComponent(v) + '&'; });
+
+        ajaxGet(url, {},
             function (r) {
                 if (!r.success || !r.data.length) { showToast('error', 'No data to export.'); return; }
-                buildObjectPdf(r.data, year, sector, dept, fund, cc, obj);
+                const showSector = $('#chkSector').prop('checked');
+                const showDept   = $('#chkDept').prop('checked');
+                const showFund   = $('#chkFund').prop('checked');
+                const showCC     = $('#chkCC').prop('checked');
+                buildObjectPdf(r.data, year, sector, dept, fund, ccVals, objVals, showSector, showDept, showFund, showCC);
             },
             function () { showToast('error', 'Failed to load grouped data for PDF.'); });
     }
 
-    function buildObjectPdf(rows, year, sector, dept, fund, cc, obj) {
+    function buildObjectPdf(rows, year, sector, dept, fund, cc, obj, showSector, showDept, showFund, showCC) {
         const { jsPDF } = window.jspdf;
         const doc   = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
         const pageW = doc.internal.pageSize.getWidth();
@@ -473,8 +554,10 @@
         const sectorLbl = sector ? ($('#filterSector').find('option:selected').text() || sector) : 'All Sectors';
         const deptLbl   = dept   ? ($('#filterDept').find('option:selected').text()   || dept)   : 'All Departments';
         const fundLbl   = fund   ? ($('#filterFund').find('option:selected').text()   || fund)   : 'All Funds';
-        const ccLbl     = cc     ? ($('#filterCC').find('option:selected').text()     || cc)     : 'All Cost Centers';
-        const objLbl    = obj    ? ($('#filterObj').find('option:selected').text()    || obj)    : 'All Objects';
+        const ccArr  = Array.isArray(cc)  ? cc  : (cc  ? [cc]  : []);
+        const objArr = Array.isArray(obj) ? obj : (obj ? [obj] : []);
+        const ccLbl  = ccArr.length  > 0 ? ccArr.map(v  => $('#filterCC option[value="' + v + '"]').text()  || v).join(', ')  : 'All Cost Centers';
+        const objLbl = objArr.length > 0 ? objArr.map(v => $('#filterObj option[value="' + v + '"]').text() || v).join(', ') : 'All Objects';
 
         // colours
         const C_NAVY    = [11, 43, 82];
@@ -486,9 +569,13 @@
         const C_WHITE   = [255, 255, 255];
         const C_DARK    = [25, 25, 25];
 
-        const COLS = [70, 210, 85, 85, 80, 52, 85, 52, 80];
+        // Column widths are proportional weights of the full page width so the table
+        // always stretches to fit on a single page horizontally, regardless of page size.
+        const COL_WEIGHTS = [55, 130, 65, 65, 60, 42, 62, 55, 55, 58, 65, 65, 42, 62];
         const L_MARGIN = 8, R_MARGIN = 8;
         const tableW = pageW - L_MARGIN - R_MARGIN;
+        const COL_WEIGHT_SUM = COL_WEIGHTS.reduce((a, b) => a + b, 0);
+        const COLS = COL_WEIGHTS.map(w => (w / COL_WEIGHT_SUM) * tableW);
 
         function drawPageHeader(pgDoc, isFirst) {
             pgDoc.setFillColor(...C_NAVY);
@@ -519,10 +606,15 @@
         const HEAD = [
             { content: 'OBJECT\nCODE',   styles: { halign: 'left'   } },
             { content: 'DESCRIPTION',    styles: { halign: 'left'   } },
-            { content: 'ALLOC\nBUDGET',  styles: { halign: 'right'  } },
+            { content: 'ALLOCATION',     styles: { halign: 'right'  } },
             { content: 'BUDGET\nGRANT',  styles: { halign: 'right'  } },
             { content: 'RELEASES',       styles: { halign: 'right'  } },
             { content: '% REL',          styles: { halign: 'center' } },
+            { content: 'SUPPLE-\nMENTARY', styles: { halign: 'right'  } },
+            { content: 'REAPP\n(+)',      styles: { halign: 'right'  } },
+            { content: 'REAPP\n(-)',      styles: { halign: 'right'  } },
+            { content: 'SURRENDER',      styles: { halign: 'right'  } },
+            { content: 'FINAL\nBUDGET',   styles: { halign: 'right'  } },
             { content: 'EXPENDITURE',    styles: { halign: 'right'  } },
             { content: '% UTIL',         styles: { halign: 'center' } },
             { content: 'BALANCE',        styles: { halign: 'right'  } }
@@ -538,6 +630,11 @@
                     { content: fmtN(item.bg), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
                     { content: fmtN(item.rl), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
                     { content: pct(item.rl, item.al), styles: { halign: 'center', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.supp), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.rp), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.rm), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.sur), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
+                    { content: fmtN(item.fg), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
                     { content: fmtN(item.ex), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
                     { content: pct(item.ex, item.fg), styles: { halign: 'center', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } },
                     { content: fmtN(item.bl), styles: { halign: 'right', fontStyle: 'bold', fillColor: fillColor, textColor: fontColor } }
@@ -554,73 +651,142 @@
             t.al += r.totalAllocatedBudget; t.bg += r.totalBudgetGrant;
             t.rl += r.totalReleases; t.fg += r.totalFinalGrant;
             t.ex += r.totalActualExpenditure; t.bl += r.totalBalance;
+            t.supp += r.totalSupplementaryGrant; t.rp += r.totalReappropriationPlus;
+            t.rm += r.totalReappropriationMinus; t.sur += r.totalSurrender;
         }
         // roll up from one totals object (short names) into another
         function roll(dest, src) {
             dest.al += src.al; dest.bg += src.bg;
             dest.rl += src.rl; dest.fg += src.fg;
             dest.ex += src.ex; dest.bl += src.bl;
+            dest.supp += src.supp; dest.rp += src.rp;
+            dest.rm += src.rm; dest.sur += src.sur;
         }
-        function zero() { return { al:0, bg:0, rl:0, fg:0, ex:0, bl:0 }; }
+        function zero() { return { al:0, bg:0, rl:0, fg:0, ex:0, bl:0, supp:0, rp:0, rm:0, sur:0 }; }
 
         const grand = zero();
-        // group by sector
+        // group by sector → dept → fund → costcenter (using only the visible/checked levels as keys,
+        // so rows that share the same object code within a collapsed level get merged together)
         const secMap = {};
         rows.forEach(function (r) {
-            (secMap[r.sector] = secMap[r.sector] || {})[r.department] = secMap[r.sector][r.department] || {};
-            const dMap = secMap[r.sector][r.department];
-            const fKey = r.fundCode;
-            (dMap[fKey] = dMap[fKey] || { desc: r.fundDescription, items: [] }).items.push(r);
+            const secKey = showSector ? r.sector : '';
+            const depKey = showDept   ? r.department : '';
+            const fcKey  = showFund   ? r.fundCode : '';
+            const ccKey  = showCC     ? (r.costCenterCode || '') : '';
+
+            if (!secMap[secKey]) secMap[secKey] = {};
+            if (!secMap[secKey][depKey]) secMap[secKey][depKey] = {};
+            const dMap = secMap[secKey][depKey];
+            if (!dMap[fcKey]) dMap[fcKey] = { desc: r.fundDescription, ccMap: {} };
+            if (!dMap[fcKey].ccMap[ccKey]) dMap[fcKey].ccMap[ccKey] = { desc: r.costCenterDescription || '', itemMap: {} };
+
+            // aggregate by object code so rows split across collapsed dimensions are summed, not duplicated
+            const itemMap = dMap[fcKey].ccMap[ccKey].itemMap;
+            const objKey = r.detailObject || '';
+            if (!itemMap[objKey]) {
+                itemMap[objKey] = {
+                    detailObject: r.detailObject, objectDescription: r.objectDescription,
+                    totalAllocatedBudget: 0, totalBudgetGrant: 0, totalReleases: 0,
+                    totalSupplementaryGrant: 0, totalReappropriationPlus: 0, totalReappropriationMinus: 0,
+                    totalSurrender: 0, totalFinalGrant: 0, totalActualExpenditure: 0, totalBalance: 0
+                };
+            }
+            const agg = itemMap[objKey];
+            agg.totalAllocatedBudget      += r.totalAllocatedBudget;
+            agg.totalBudgetGrant          += r.totalBudgetGrant;
+            agg.totalReleases             += r.totalReleases;
+            agg.totalSupplementaryGrant   += r.totalSupplementaryGrant;
+            agg.totalReappropriationPlus  += r.totalReappropriationPlus;
+            agg.totalReappropriationMinus += r.totalReappropriationMinus;
+            agg.totalSurrender            += r.totalSurrender;
+            agg.totalFinalGrant           += r.totalFinalGrant;
+            agg.totalActualExpenditure    += r.totalActualExpenditure;
+            agg.totalBalance              += r.totalBalance;
+            if (!agg.objectDescription && r.objectDescription) agg.objectDescription = r.objectDescription;
         });
+
+        // colour for CC band
+        const C_CC      = [30, 116, 173];   // blue (was teal)
+        const C_CC_SUB  = [206, 226, 244];
 
         Object.keys(secMap).sort().forEach(function (sec) {
             const sTotal = zero();
-            // Sector heading row
-            const sIdx = body.length;
-            body.push([{ content: 'SECTOR:  ' + sec, colSpan: 9, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_SECTOR, textColor: C_WHITE, fontSize: 9 } }]);
-            rowStyles[sIdx] = { minCellHeight: 18 };
+            if (showSector) {
+                const sIdx = body.length;
+                body.push([{ content: 'SECTOR:  ' + sec, colSpan: 14, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_SECTOR, textColor: C_WHITE, fontSize: 9 } }]);
+                rowStyles[sIdx] = { minCellHeight: 18 };
+            }
 
             const dMap = secMap[sec];
             Object.keys(dMap).sort().forEach(function (dep) {
                 const dTotal = zero();
-                const dIdx = body.length;
-                body.push([{ content: '  Department:  ' + dep, colSpan: 9, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_DEPT, textColor: C_WHITE, fontSize: 8.5 } }]);
-                rowStyles[dIdx] = { minCellHeight: 16 };
+                if (showDept) {
+                    const dIdx = body.length;
+                    body.push([{ content: '  Department:  ' + dep, colSpan: 14, styles: { halign: 'left', fontStyle: 'bold', fillColor: C_DEPT, textColor: C_WHITE, fontSize: 8.5 } }]);
+                    rowStyles[dIdx] = { minCellHeight: 16 };
+                }
 
-                const fObj = dMap[dep];
-                Object.keys(fObj).sort().forEach(function (fc) {
+                Object.keys(dMap[dep]).sort().forEach(function (fc) {
+                    const fEntry = dMap[dep][fc];
                     const fTotal = zero();
-                    const fIdx = body.length;
-                    const fDesc = fObj[fc].desc || '';
-                    body.push([{ content: '    Fund:  ' + fc + (fDesc ? '  ' + fDesc : ''), colSpan: 9, styles: { halign: 'left', fontStyle: 'normal', fillColor: C_FUND, textColor: C_WHITE, fontSize: 8 } }]);
-                    rowStyles[fIdx] = { minCellHeight: 15 };
+                    if (showFund) {
+                        const fIdx = body.length;
+                        const fDesc = fEntry.desc || '';
+                        body.push([{ content: '    Fund:  ' + fc + (fDesc ? '  ' + fDesc : ''), colSpan: 14, styles: { halign: 'left', fontStyle: 'normal', fillColor: C_FUND, textColor: C_WHITE, fontSize: 8 } }]);
+                        rowStyles[fIdx] = { minCellHeight: 15 };
+                    }
 
-                    fObj[fc].items.forEach(function (item, altIdx) {
-                        const fillColor = altIdx % 2 === 0 ? C_WHITE : C_ALTROW;
-                        const relPct = pct(item.totalReleases, item.totalAllocatedBudget);
-                        const utilPct = pct(item.totalActualExpenditure, item.totalFinalGrant);
-                        body.push([
-                            { content: item.detailObject,            styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
-                            { content: item.objectDescription || '—', styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
-                            { content: fmtN(item.totalAllocatedBudget),    styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
-                            { content: fmtN(item.totalBudgetGrant),        styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
-                            { content: fmtN(item.totalReleases),           styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
-                            { content: relPct,                             styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
-                            { content: fmtN(item.totalActualExpenditure),  styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
-                            { content: utilPct,                            styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
-                            { content: fmtN(item.totalBalance),            styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } }
-                        ]);
-                        acc(fTotal, { totalAllocatedBudget: item.totalAllocatedBudget, totalBudgetGrant: item.totalBudgetGrant, totalReleases: item.totalReleases, totalFinalGrant: item.totalFinalGrant, totalActualExpenditure: item.totalActualExpenditure, totalBalance: item.totalBalance });
+                    Object.keys(fEntry.ccMap).sort().forEach(function (ccCode) {
+                        const ccEntry = fEntry.ccMap[ccCode];
+                        const ccTotal = zero();
+                        if (showCC) {
+                            const cIdx = body.length;
+                            const ccLabel = ccCode + (ccEntry.desc ? '  —  ' + ccEntry.desc : '');
+                            body.push([{ content: '      Cost Center:  ' + ccLabel, colSpan: 14, styles: { halign: 'left', fontStyle: 'normal', fillColor: C_CC, textColor: C_WHITE, fontSize: 7.5 } }]);
+                            rowStyles[cIdx] = { minCellHeight: 13 };
+                        }
+                        const itemList = Object.values(ccEntry.itemMap).sort(function (a, b) { return b.totalAllocatedBudget - a.totalAllocatedBudget; });
+                        itemList.forEach(function (item, altIdx) {
+                            const fillColor = altIdx % 2 === 0 ? C_WHITE : C_ALTROW;
+                            const relPct  = pct(item.totalReleases, item.totalAllocatedBudget);
+                            const utilPct = pct(item.totalActualExpenditure, item.totalFinalGrant);
+                            body.push([
+                                { content: item.detailObject,              styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
+                                { content: item.objectDescription || '—',  styles: { halign: 'left',   fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalAllocatedBudget),   styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalBudgetGrant),       styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalReleases),          styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: relPct,                            styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalSupplementaryGrant),   styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalReappropriationPlus),  styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalReappropriationMinus), styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalSurrender),            styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalFinalGrant),           styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalActualExpenditure), styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } },
+                                { content: utilPct,                           styles: { halign: 'center', fillColor: fillColor, textColor: C_DARK } },
+                                { content: fmtN(item.totalBalance),           styles: { halign: 'right',  fillColor: fillColor, textColor: C_DARK } }
+                            ]);
+                            acc(ccTotal, item);
+                        });
+                        if (showCC) {
+                            body.push(subtotRow('      Subtotal — CC: ' + ccCode, ccTotal, C_CC_SUB, C_DARK).cells);
+                        }
+                        roll(fTotal, ccTotal);
                     });
-                    // Fund subtotal
-                    body.push(subtotRow('    Subtotal — Fund: ' + fc, fTotal, C_SUBTOT, C_DARK).cells);
-                    roll(dTotal, fTotal); roll(sTotal, fTotal); roll(grand, fTotal);
+                    if (showFund) {
+                        body.push(subtotRow('    Subtotal — Fund: ' + fc, fTotal, C_SUBTOT, C_DARK).cells);
+                    }
+                    roll(dTotal, fTotal);
                 });
-                // Dept subtotal
-                body.push(subtotRow('  Subtotal — Dept: ' + dep, dTotal, [185, 210, 240], C_DARK).cells);
+                if (showDept) {
+                    body.push(subtotRow('  Subtotal — Dept: ' + dep, dTotal, [185, 210, 240], C_DARK).cells);
+                }
+                roll(sTotal, dTotal);
             });
-            // Sector subtotal
-            body.push(subtotRow('Subtotal — Sector: ' + sec, sTotal, [155, 190, 230], C_DARK).cells);
+            if (showSector) {
+                body.push(subtotRow('Subtotal — Sector: ' + sec, sTotal, [155, 190, 230], C_DARK).cells);
+            }
+            roll(grand, sTotal);
         });
 
         // Grand total
@@ -635,6 +801,7 @@
             startY: 68,
             margin: { left: L_MARGIN, right: R_MARGIN, bottom: 28 },
             tableWidth: tableW,
+            horizontalPageBreak: false,
             styles: {
                 fontSize: 7.5,
                 cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
@@ -662,7 +829,12 @@
                 5: { cellWidth: COLS[5] },
                 6: { cellWidth: COLS[6] },
                 7: { cellWidth: COLS[7] },
-                8: { cellWidth: COLS[8] }
+                8: { cellWidth: COLS[8] },
+                9: { cellWidth: COLS[9] },
+                10: { cellWidth: COLS[10] },
+                11: { cellWidth: COLS[11] },
+                12: { cellWidth: COLS[12] },
+                13: { cellWidth: COLS[13] }
             },
             didDrawPage: function (data) {
                 if (data.pageNumber > 1) drawPageHeader(doc, false);
@@ -674,13 +846,30 @@
     }
 
     function exportExcel() {
-        const year   = $('#filterYear').val()   || null;
-        const sector = $('#filterSector').val() || null;
-        const dept   = $('#filterDept').val()   || null;
-        const fund   = $('#filterFund').val()   || null;
-        const cc     = $('#filterCC').val()     || null;
-        const obj    = $('#filterObj').val()    || null;
-        exportToExcel('/Reports/ExportExcel?reportType=object', { financialYear: year, sector: sector, departmentCode: dept, fundCode: fund, costCenterCode: cc, keyword: obj });
+        const year       = $('#filterYear').val()   || '';
+        const sector     = $('#filterSector').val() || '';
+        const dept       = $('#filterDept').val()   || '';
+        const fund       = $('#filterFund').val()   || '';
+        const ccVals     = $('#filterCC').val()     || [];
+        const objVals    = $('#filterObj').val()    || [];
+        const showSector = $('#chkSector').prop('checked') ? 'true' : 'false';
+        const showDept   = $('#chkDept').prop('checked')   ? 'true' : 'false';
+        const showFund   = $('#chkFund').prop('checked')   ? 'true' : 'false';
+        const showCC     = $('#chkCC').prop('checked')     ? 'true' : 'false';
+
+        const qs = new URLSearchParams();
+        qs.set('reportType', 'object');
+        if (year)   qs.set('financialYear',   year);
+        if (sector) qs.set('sector',           sector);
+        if (dept)   qs.set('departmentCode',   dept);
+        if (fund)   qs.set('fundCode',         fund);
+        ccVals.forEach(v  => qs.append('costCenterCodes', v));
+        objVals.forEach(v => qs.append('objectCodes', v));
+        qs.set('showSector', showSector);
+        qs.set('showDept',   showDept);
+        qs.set('showFund',   showFund);
+        qs.set('showCC',     showCC);
+        window.location.href = '/Reports/ExportExcel?' + qs.toString();
     }
 
     function clearFilters() {
@@ -688,12 +877,12 @@
         if ($('#filterSector').hasClass('select2-hidden-accessible')) $('#filterSector').val('').trigger('change.select2');
         if ($('#filterDept').hasClass('select2-hidden-accessible'))   $('#filterDept').val('').trigger('change.select2');
         if ($('#filterFund').hasClass('select2-hidden-accessible'))   $('#filterFund').val('').trigger('change.select2');
-        if ($('#filterCC').hasClass('select2-hidden-accessible'))     $('#filterCC').val('').trigger('change.select2');
-        resetObjDropdown();
+        if ($('#filterCC').hasClass('select2-hidden-accessible'))     $('#filterCC').val(null).trigger('change.select2');
         loadSectorDropdown(null);
         loadDeptDropdown(null, null);
         loadFundDropdown(null, null, null);
         loadCCDropdown(null, null);
+        loadObjDropdown();
         loadData();
     }
 

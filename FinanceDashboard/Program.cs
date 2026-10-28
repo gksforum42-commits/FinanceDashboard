@@ -4,6 +4,7 @@ using FinanceDashboard.Models;
 using FinanceDashboard.Repositories;
 using FinanceDashboard.Services;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,10 @@ builder.Services.AddControllersWithViews(options =>
 {
     // Anti-forgery token validation (GET requests are excluded automatically)
     options.Filters.Add(new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute());
+
+    // Global authorization filter: require authentication by default on all controllers/actions
+    // unless explicitly decorated with [AllowAnonymous]
+    options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter());
 })
 .AddJsonOptions(options =>
 {
@@ -97,6 +102,18 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Administrator"));
     options.AddPolicy("UserAccess", policy => policy.RequireRole("Administrator", "EndUser"));
+
+    // Require authenticated users for assertion-based policies so anonymous users are not allowed.
+    options.AddPolicy("NotDepartmentUser", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireAssertion(ctx => !ctx.User.IsInRole("DepartmentUser")));
+
+    // Blocks users whose ONLY role is SNEDepartmentUser (pure SNE users) from the regular dashboards.
+    // Budget Officer users (DepartmentUser + SNEDepartmentUser) and Administrators are not blocked.
+    options.AddPolicy("NotSneDepartmentUser", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireAssertion(ctx =>
+                  !ctx.User.IsInRole("SNEDepartmentUser") || ctx.User.IsInRole("DepartmentUser") || ctx.User.IsInRole("Administrator")));
 });
 
 // Session for temp file storage during import
@@ -119,12 +136,21 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = CompressionLevel.Optimal;
 });
 
+// Persist DataProtection keys to disk so auth cookies survive Azure app pool recycles
+// Without this, every recycle invalidates all cookies and logs everyone out.
+var keysFolder = Path.Combine(builder.Environment.ContentRootPath, "DataProtection-Keys");
+Directory.CreateDirectory(keysFolder);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new System.IO.DirectoryInfo(keysFolder))
+    .SetApplicationName("FinanceDashboard");
+
 // Memory Cache
 builder.Services.AddMemoryCache();
 
 // Repository Pattern - Dependency Injection
 builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
 builder.Services.AddScoped<IAuditRepository, AuditRepository>();
+builder.Services.AddScoped<ISneRepository, SneRepository>();
 builder.Services.AddScoped<FinanceDashboard.Interfaces.IPivotRepository, FinanceDashboard.Repositories.PivotRepository>();
 
 // Services
@@ -133,6 +159,7 @@ builder.Services.AddScoped<IPdfService, PdfService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<FinanceDashboard.Interfaces.IPivotService, FinanceDashboard.Services.PivotService>();
 builder.Services.AddScoped<FinanceDashboard.Interfaces.IPivotExportService, FinanceDashboard.Services.PivotExportService>();
+builder.Services.AddSingleton<FinanceDashboard.Services.ImportJobService>();
 
 // EPPlus License
 OfficeOpenXml.ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
@@ -198,7 +225,7 @@ static async Task SeedDatabaseAsync(WebApplication app)
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 
         // Ensure roles exist with correct normalized names
-        foreach (var roleName in new[] { "Administrator", "EndUser", "Viewer" })
+        foreach (var roleName in new[] { "Administrator", "EndUser", "Viewer", "DepartmentUser", "SNEDepartmentUser" })
         {
             if (await roleManager.FindByNameAsync(roleName) == null)
                 await roleManager.CreateAsync(new IdentityRole(roleName));

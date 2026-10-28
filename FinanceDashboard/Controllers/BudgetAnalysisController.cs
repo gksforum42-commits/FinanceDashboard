@@ -1,11 +1,12 @@
 using FinanceDashboard.Interfaces;
+using FinanceDashboard.Services;
 using FinanceDashboard.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FinanceDashboard.Controllers
 {
-    [Authorize]
+    [Authorize(Policy = "NotSneDepartmentUser")]
     public class BudgetAnalysisController : Controller
     {
         private readonly IBudgetRepository _budgetRepository;
@@ -36,12 +37,13 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                var departmentCode = User.ResolveDepartmentCode(request.DepartmentCode);
                 var filters = new FilterViewModel
                 {
                     FinancialYear = request.FinancialYear,
                     FundCode = request.FundCode,
                     CostCenterCode = null,
-                    DepartmentCode = request.DepartmentCode,
+                    DepartmentCode = departmentCode,
                     Keyword = request.SearchValue
                 };
 
@@ -169,6 +171,7 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
                 var filters = new FilterViewModel { FinancialYear = financialYear, FundCode = fundCode, DepartmentCode = departmentCode, Keyword = keyword };
                 var excelBytes = await _excelService.ExportOriginalBudgetAsync(filters);
                 return File(excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"OriginalBudget_{DateTime.Now:yyyyMMddHHmmss}.xlsx");
@@ -186,6 +189,7 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
                 var filters = new FilterViewModel { FinancialYear = financialYear, FundCode = fundCode, DepartmentCode = departmentCode, Keyword = keyword };
                 var pdfBytes = await _pdfService.GenerateOriginalBudgetPdfAsync(filters);
                 return File(pdfBytes, "application/pdf", $"OriginalBudget_{DateTime.Now:yyyyMMddHHmmss}.pdf");
@@ -203,6 +207,7 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
                 var filters = new FilterViewModel { FinancialYear = financialYear, FundCode = fundCode, DepartmentCode = departmentCode, Keyword = keyword };
                 var excelBytes = await _excelService.ExportBERDataAsync(filters);
                 return File(excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"BER_{DateTime.Now:yyyyMMddHHmmss}.xlsx");
@@ -220,6 +225,7 @@ namespace FinanceDashboard.Controllers
         {
             try
             {
+                departmentCode = User.ResolveDepartmentCode(departmentCode);
                 var filters = new FilterViewModel { FinancialYear = financialYear, FundCode = fundCode, DepartmentCode = departmentCode, Keyword = keyword };
                 var pdfBytes = await _pdfService.GenerateBERPdfAsync(filters);
                 return File(pdfBytes, "application/pdf", $"BER_{DateTime.Now:yyyyMMddHHmmss}.pdf");

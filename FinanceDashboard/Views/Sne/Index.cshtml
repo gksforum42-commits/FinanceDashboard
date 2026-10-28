@@ -1,0 +1,392 @@
+@model FinanceDashboard.ViewModels.SneLandingViewModel
+@{
+    ViewData["Title"] = "Permanent Budget";
+}
+
+@section Styles {
+<style>
+    #snePage { width: 100%; max-width: none; }
+
+    .sne-hero {
+        background: #eef1f5;
+        border-bottom: 1px solid #dde2e8;
+        border-radius: 10px 10px 0 0;
+        padding: 1rem 1.5rem;
+        color: #1a3a5c;
+        margin-bottom: 1.25rem;
+    }
+    .sne-hero h2 { font-size: 1.35rem; font-weight: 800; margin: 0; color: #1a3a5c; }
+    .sne-hero p { margin: .15rem 0 0; opacity: .75; font-size: .82rem; color: #4a5568; }
+    .sne-hero p strong { color: #1a3a5c; }
+
+    .sne-summary-cards {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+    @@media (max-width: 1199.98px) {
+        .sne-summary-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+    @@media (max-width: 575.98px) {
+        .sne-summary-cards { grid-template-columns: 1fr; }
+    }
+    .sne-card {
+        min-width: 0;
+        background: #fff; border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        padding: 1.1rem 1.25rem;
+        display: flex; align-items: center; gap: .9rem;
+        border-left: 5px solid #2c5282;
+    }
+    .sne-card .sne-card-icon {
+        width: 46px; height: 46px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.4rem; color: #fff; background: #2c5282; flex-shrink: 0;
+    }
+    .sne-card.total { border-left-color: #2c5282; }
+    .sne-card.total .sne-card-icon { background: #2c5282; }
+    .sne-card.created { border-left-color: #3f6fb5; }
+    .sne-card.created .sne-card-icon { background: #3f6fb5; }
+    .sne-card.submitted { border-left-color: #1a3a5c; }
+    .sne-card.submitted .sne-card-icon { background: #1a3a5c; }
+    .sne-card.pending { border-left-color: #6b8cba; }
+    .sne-card.pending .sne-card-icon { background: #6b8cba; }
+    .sne-card.posts { border-left-color: #4a6fa5; }
+    .sne-card.posts .sne-card-icon { background: #4a6fa5; }
+    .sne-card.posts-current { border-left-color: #35527d; }
+    .sne-card.posts-current .sne-card-icon { background: #35527d; }
+    .sne-card.original-budget { border-left-color: #2c5282; }
+    .sne-card.original-budget .sne-card-icon { background: #2c5282; }
+    .sne-card.proposed-budget { border-left-color: #1a3a5c; }
+    .sne-card.proposed-budget .sne-card-icon { background: #1a3a5c; }
+    .sne-card.percent-increase { border-left-color: #3f6fb5; }
+    .sne-card.percent-increase .sne-card-icon { background: #3f6fb5; }
+    .sne-card .sne-card-body { min-width: 0; flex: 1; }
+    .sne-card .sne-card-value {
+        font-size: 1.4rem; font-weight: 800; color: #1a3a5c; line-height: 1.15;
+        word-break: break-word; overflow-wrap: anywhere;
+    }
+    .sne-card .sne-card-value.sne-amount { font-size: 1.15rem; white-space: normal; word-break: break-word; }
+    .sne-card .sne-card-label { font-size: .78rem; color: #6b7482; margin-top: .2rem; text-transform: uppercase; letter-spacing: .03em; }
+
+    .sne-table-card {
+        background: #fff; border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        overflow: hidden; width: 100%;
+    }
+    .sne-table-card .card-header-bar {
+        padding: .85rem 1.25rem; border-bottom: 1px solid #eef0f3;
+        font-weight: 700; color: #1a3a5c; font-size: .95rem;
+    }
+    #sneCostCenterTable thead th {
+        background: #1a3a5c; color: #fff; font-size: .78rem;
+        text-transform: uppercase; letter-spacing: .03em;
+    }
+    #sneCostCenterTable tbody td { font-size: .85rem; vertical-align: middle; }
+    #sneCostCenterTable tbody tr:hover td { background: #f4f7fb; }
+
+    .sne-badge { padding: .3rem .65rem; border-radius: 20px; font-size: .72rem; font-weight: 700; }
+    .sne-badge.not-created { background: #eef1f5; color: #6b7482; }
+    .sne-badge.draft { background: #dbe7f5; color: #1a3a5c; }
+    .sne-badge.submitted { background: #1a3a5c; color: #fff; }
+    .sne-badge.pending-review { background: #ffe8b3; color: #7a5200; }
+</style>
+}
+
+<div id="snePage" class="container-fluid px-4 py-3">
+    <div class="sne-hero">
+        @if (Model.IsAdminView || Model.IsMultiDepartmentView)
+        {
+            <h2>@(string.IsNullOrWhiteSpace(Model.DepartmentCode) ? "All Departments" : (Model.DepartmentName ?? Model.DepartmentCode))</h2>
+            <p>Financial Year: <strong>@Model.FinancialYear-@((Model.FinancialYear + 1).ToString().Substring(2))</strong></p>
+        }
+        else
+        {
+            <h2>@(Model.DepartmentName ?? Model.DepartmentCode)</h2>
+            <p>Department Code: <strong>@Model.DepartmentCode</strong> &nbsp;|&nbsp; Financial Year: <strong>@Model.FinancialYear-@((Model.FinancialYear + 1).ToString().Substring(2))</strong></p>
+        }
+    </div>
+
+    @if (Model.IsAdminView || Model.IsMultiDepartmentView)
+    {
+        <form method="get" asp-action="Index" class="d-flex align-items-end gap-2 mb-3">
+            <div>
+                <label class="form-label mb-1">Department</label>
+                <select name="department" class="form-select form-select-sm" style="min-width:220px" onchange="this.form.submit()">
+                    <option value="">@(Model.IsAdminView ? "All Departments (Summary)" : "All Assigned Departments (Summary)")</option>
+                    @foreach (var dept in Model.AvailableDepartments)
+                    {
+                        <option value="@dept.DepartmentCode" selected="@(Model.DepartmentCode == dept.DepartmentCode)">@(dept.DepartmentName ?? dept.DepartmentCode)</option>
+                    }
+                </select>
+            </div>
+            <input type="hidden" name="financialYear" value="@Model.FinancialYear" />
+        </form>
+    }
+
+    @if (string.IsNullOrWhiteSpace(Model.DepartmentCode) && (Model.IsAdminView || Model.IsMultiDepartmentView))
+    {
+        <div class="sne-summary-cards">
+            <div class="sne-card total">
+                <div class="sne-card-icon"><i class="bi bi-building"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value" title="@Model.TotalCostCenters">@Model.TotalCostCenters</div>
+                    <div class="sne-card-label">Total Cost Centers</div>
+                </div>
+            </div>
+            <div class="sne-card created">
+                <div class="sne-card-icon"><i class="bi bi-pencil-square"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value" title="@(Model.CreatedCount + Model.PendingReviewCount)">@(Model.CreatedCount + Model.PendingReviewCount)</div>
+                    <div class="sne-card-label">SNE Created (Draft)</div>
+                </div>
+            </div>
+            <div class="sne-card submitted">
+                <div class="sne-card-icon"><i class="bi bi-check2-circle"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value" title="@Model.SubmittedCount">@Model.SubmittedCount</div>
+                    <div class="sne-card-label">SNE Submitted</div>
+                </div>
+            </div>
+            <div class="sne-card pending">
+                <div class="sne-card-icon"><i class="bi bi-hourglass-split"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value" title="@Model.NotCreatedCount">@Model.NotCreatedCount</div>
+                    <div class="sne-card-label">Not Yet Created</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sne-summary-cards">
+            <div class="sne-card posts">
+                <div class="sne-card-icon"><i class="bi bi-people-fill"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value sne-amount" title="@Model.TotalPostsPriorYear.ToString("N0")">@Model.TotalPostsPriorYear.ToString("N0")</div>
+                    <div class="sne-card-label">Total No Posts Year 2026-27</div>
+                </div>
+            </div>
+            <div class="sne-card posts-current">
+                <div class="sne-card-icon"><i class="bi bi-person-plus-fill"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value sne-amount" title="@Model.TotalPostsCurrentYear.ToString("N0")">@Model.TotalPostsCurrentYear.ToString("N0")</div>
+                    <div class="sne-card-label">Total No Posts 2027-28</div>
+                </div>
+            </div>
+            <div class="sne-card original-budget">
+                <div class="sne-card-icon"><i class="bi bi-cash-stack"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value sne-amount" title="@Model.TotalOriginalBudget.ToString("N0")">@Model.TotalOriginalBudget.ToString("N0")</div>
+                    <div class="sne-card-label">Total Budget 2026-27</div>
+                </div>
+            </div>
+            <div class="sne-card proposed-budget">
+                <div class="sne-card-icon"><i class="bi bi-graph-up"></i></div>
+                <div class="sne-card-body">
+                    <div class="sne-card-value sne-amount" title="@Model.TotalProposedBudget.ToString("N0")">@Model.TotalProposedBudget.ToString("N0")</div>
+                    <div class="sne-card-label">Total Proposed Budget 2027-28</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sne-table-card">
+            <div class="card-header-bar">Department Summary</div>
+            <div class="table-responsive">
+                <table class="table mb-0" id="sneDepartmentSummaryTable">
+                    <thead>
+                        <tr>
+                            <th>Department</th>
+                            <th>Total Cost Centers</th>
+                            <th>Draft</th>
+                            <th>Submitted</th>
+                            <th>Not Created</th>
+                            <th>Total No Posts 2026-27</th>
+                            <th>Total No Posts 2027-28</th>
+                            <th>Total Budget 2026-27</th>
+                            <th>Proposed Budget 2027-28</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var dept in Model.DepartmentSummaries)
+                        {
+                            <tr>
+                                <td><a asp-action="Index" asp-route-department="@dept.DepartmentCode" asp-route-financialYear="@Model.FinancialYear">@(dept.DepartmentName ?? dept.DepartmentCode)</a></td>
+                                <td>@dept.TotalCostCenters</td>
+                                <td>@(dept.CreatedCount + dept.PendingReviewCount)</td>
+                                <td>@dept.SubmittedCount</td>
+                                <td>@dept.NotCreatedCount</td>
+                                <td>@dept.TotalPostsPriorYear.ToString("N0")</td>
+                                <td>@dept.TotalPostsCurrentYear.ToString("N0")</td>
+                                <td>@dept.TotalOriginalBudget.ToString("N0")</td>
+                                <td>@dept.TotalProposedBudget.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        // For the plain SNE Department User, a row that has been reverted by an Administrator
+        // back to Draft but locked (SneUserLocked) should still appear as "Submitted" to them -
+        // they remain locked out and the form is now solely in the Budget Officer/Admin's hands.
+        var plainSneCreatedCount = Model.IsPlainSneUserView
+            ? Model.CostCenters.Count(r => r.Status == "Draft" && !r.SneUserLocked)
+            : Model.CreatedCount + Model.PendingReviewCount;
+        var plainSneSubmittedCount = Model.IsPlainSneUserView
+            ? Model.CostCenters.Count(r => r.Status == "SubmittedBySNE" || r.Status == "Submitted" || (r.Status == "Draft" && r.SneUserLocked))
+            : Model.SubmittedCount;
+    <div class="sne-summary-cards">
+        <div class="sne-card total">
+            <div class="sne-card-icon"><i class="bi bi-building"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value" title="@Model.TotalCostCenters">@Model.TotalCostCenters</div>
+                <div class="sne-card-label">Total Cost Centers</div>
+            </div>
+        </div>
+        <div class="sne-card created">
+            <div class="sne-card-icon"><i class="bi bi-pencil-square"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value" title="@plainSneCreatedCount">@plainSneCreatedCount</div>
+                <div class="sne-card-label">SNE Created (Draft)</div>
+            </div>
+        </div>
+        <div class="sne-card submitted">
+            <div class="sne-card-icon"><i class="bi bi-check2-circle"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value" title="@plainSneSubmittedCount">@plainSneSubmittedCount</div>
+                <div class="sne-card-label">SNE Submitted (Final)</div>
+            </div>
+        </div>
+        <div class="sne-card pending">
+            <div class="sne-card-icon"><i class="bi bi-exclamation-circle"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value" title="@Model.NotCreatedCount">@Model.NotCreatedCount</div>
+                <div class="sne-card-label">Not Yet Created</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sne-summary-cards">
+        <div class="sne-card posts">
+            <div class="sne-card-icon"><i class="bi bi-people-fill"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value sne-amount" title="@Model.TotalPostsPriorYear.ToString("N0")">@Model.TotalPostsPriorYear.ToString("N0")</div>
+                <div class="sne-card-label">Total No Posts Year 2026-27</div>
+            </div>
+        </div>
+        <div class="sne-card posts-current">
+            <div class="sne-card-icon"><i class="bi bi-person-plus-fill"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value sne-amount" title="@Model.TotalPostsCurrentYear.ToString("N0")">@Model.TotalPostsCurrentYear.ToString("N0")</div>
+                <div class="sne-card-label">Total No Posts 2027-28</div>
+            </div>
+        </div>
+        <div class="sne-card original-budget">
+            <div class="sne-card-icon"><i class="bi bi-cash-stack"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value sne-amount" title="@Model.TotalOriginalBudget.ToString("N0")">@Model.TotalOriginalBudget.ToString("N0")</div>
+                <div class="sne-card-label">Total Budget 2026-27</div>
+            </div>
+        </div>
+        <div class="sne-card proposed-budget">
+            <div class="sne-card-icon"><i class="bi bi-graph-up"></i></div>
+            <div class="sne-card-body">
+                <div class="sne-card-value sne-amount" title="@Model.TotalProposedBudget.ToString("N0")">@Model.TotalProposedBudget.ToString("N0")</div>
+                <div class="sne-card-label">Total Proposed Budget 2027-28</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sne-table-card">
+        <div class="card-header-bar">Cost Centers</div>
+        <div class="table-responsive">
+            <table class="table mb-0" id="sneCostCenterTable">
+                <thead>
+                    <tr>
+                        <th>Cost Center Code</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.CostCenters)
+                    {
+                        <tr>
+                            <td>@row.CostCenterCode</td>
+                            <td>@row.CostCenterDesc</td>
+                            @{
+                                var isPlainSneUser = !User.IsInRole("Administrator") && !User.IsInRole("DepartmentUser") && User.IsInRole("SNEDepartmentUser");
+                            }
+                            <td>
+                                @if (row.Status == "Submitted" || (row.Status == "SubmittedBySNE" && isPlainSneUser) || (row.Status == "Draft" && row.SneUserLocked && isPlainSneUser))
+                                {
+                                    <span class="sne-badge submitted">Submitted</span>
+                                }
+                                else if (row.Status == "SubmittedBySNE" || (row.Status == "Draft" && row.SneUserLocked))
+                                {
+                                    <span class="sne-badge draft">Draft</span>
+                                }
+                                else if (row.Status == "Draft")
+                                {
+                                    <span class="sne-badge draft">Draft</span>
+                                }
+                                else
+                                {
+                                    <span class="sne-badge not-created">Not Created</span>
+                                }
+                            </td>
+                            <td>
+                                @if (row.Status == "Submitted" || (row.Status == "SubmittedBySNE" && isPlainSneUser) || (row.Status == "Draft" && row.SneUserLocked && isPlainSneUser))
+                                {
+                                    <a class="btn btn-sm btn-outline-primary" target="_blank" asp-action="CreateOrEdit" asp-route-costCenterCode="@row.CostCenterCode" asp-route-financialYear="@Model.FinancialYear">
+                                        <i class="bi bi-eye"></i> View
+                                    </a>
+                                }
+                                else if (row.Status == "SubmittedBySNE" || row.Status == "Draft")
+                                {
+                                    <a class="btn btn-sm btn-primary" target="_blank" asp-action="CreateOrEdit" asp-route-costCenterCode="@row.CostCenterCode" asp-route-financialYear="@Model.FinancialYear">
+                                        <i class="bi bi-pencil"></i> Edit / Submit
+                                    </a>
+                                }
+                                else
+                                {
+                                    <a class="btn btn-sm btn-primary" target="_blank" asp-action="CreateOrEdit" asp-route-costCenterCode="@row.CostCenterCode" asp-route-financialYear="@Model.FinancialYear">
+                                        <i class="bi bi-plus-circle"></i> Create
+                                    </a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            if ($('#sneCostCenterTable').length) {
+                $('#sneCostCenterTable').DataTable({
+                    pageLength: 50,
+                    lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+                    order: [[0, 'asc']],
+                    columnDefs: [
+                        { orderable: false, targets: 3 }
+                    ]
+                });
+            }
+            if ($('#sneDepartmentSummaryTable').length) {
+                $('#sneDepartmentSummaryTable').DataTable({
+                    pageLength: 25,
+                    lengthMenu: [[10, 25, 50, -1], [10, 25, 50, 'All']],
+                    order: [[0, 'asc']]
+                });
+            }
+        });
+    </script>
+}

@@ -1,22 +1,19 @@
-using Dapper;
 using FinanceDashboard.Data;
 using FinanceDashboard.Interfaces;
 using FinanceDashboard.Models;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using System.Data;
 
 namespace FinanceDashboard.Repositories
 {
     public class AuditRepository : IAuditRepository
     {
         private readonly ApplicationDbContext _context;
-        private readonly string _connectionString;
+        private readonly ILogger<AuditRepository> _logger;
 
-        public AuditRepository(ApplicationDbContext context, IConfiguration configuration)
+        public AuditRepository(ApplicationDbContext context, ILogger<AuditRepository> logger)
         {
             _context = context;
-            _connectionString = configuration.GetConnectionString("DefaultConnection")!;
+            _logger = logger;
         }
 
         public async Task LogAsync(AuditLog auditLog)
@@ -34,33 +31,62 @@ namespace FinanceDashboard.Repositories
 
         public async Task<List<AuditLog>> GetAuditLogsAsync(string? userId = null, string? action = null, DateTime? fromDate = null, DateTime? toDate = null, int pageNumber = 1, int pageSize = 50)
         {
-            using var connection = new SqlConnection(_connectionString);
-            var parameters = new DynamicParameters();
-            parameters.Add("@UserId", userId, DbType.String);
-            parameters.Add("@Action", action, DbType.String);
-            parameters.Add("@FromDate", fromDate, DbType.DateTime2);
-            parameters.Add("@ToDate", toDate, DbType.DateTime2);
-            parameters.Add("@PageNumber", pageNumber, DbType.Int32);
-            parameters.Add("@PageSize", pageSize, DbType.Int32);
+            var query = _context.AuditLogs.AsNoTracking();
 
-            var result = await connection.QueryAsync<AuditLog>(
-                "admin.sp_GetAuditLogs",
-                parameters,
-                commandType: CommandType.StoredProcedure);
+            // Filter by UserId if provided
+            if (!string.IsNullOrEmpty(userId))
+            {
+                query = query.Where(x => x.UserId == userId);
+            }
 
-            return result.ToList();
+            // Filter by Action if provided
+            if (!string.IsNullOrEmpty(action))
+            {
+                query = query.Where(x => x.Action == action);
+            }
+
+            // Filter by FromDate if provided
+            if (fromDate.HasValue)
+            {
+                query = query.Where(x => x.ActionDate >= fromDate.Value);
+            }
+
+            // Filter by ToDate if provided - include entire end day
+            if (toDate.HasValue)
+            {
+                var toDateEnd = toDate.Value.AddDays(1);
+                query = query.Where(x => x.ActionDate < toDateEnd);
+            }
+
+            var result = await query
+                .OrderByDescending(x => x.ActionDate)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return result;
         }
 
         public async Task<int> GetAuditLogsCountAsync(string? userId = null, string? action = null, DateTime? fromDate = null, DateTime? toDate = null)
         {
-            return await _context.AuditLogs
-                .AsNoTracking()
-                .Where(x =>
-                    (userId == null || x.UserId == userId) &&
-                    (action == null || x.Action == action) &&
-                    (fromDate == null || x.ActionDate >= fromDate) &&
-                    (toDate == null || x.ActionDate <= toDate))
-                .CountAsync();
+            var query = _context.AuditLogs.AsNoTracking();
+
+            if (!string.IsNullOrEmpty(userId))
+                query = query.Where(x => x.UserId == userId);
+
+            if (!string.IsNullOrEmpty(action))
+                query = query.Where(x => x.Action == action);
+
+            if (fromDate.HasValue)
+                query = query.Where(x => x.ActionDate >= fromDate.Value);
+
+            if (toDate.HasValue)
+            {
+                var toDateEnd = toDate.Value.AddDays(1);
+                query = query.Where(x => x.ActionDate < toDateEnd);
+            }
+
+            return await query.CountAsync();
         }
     }
 }
